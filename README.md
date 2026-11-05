@@ -1,22 +1,43 @@
 # java-index
 
-**java-index is a fast, shared Java code index for editors and AI coding agents.**
+**Java code navigation for reviewing what your AI agents write.**
 
-It answers the questions you ask while reading Java code: *where is this defined, who calls it,
-what implements it, what is this library method's real signature, which config key does this
-`@Value` read?* It serves those answers to editors over the
-[Language Server Protocol](https://microsoft.github.io/language-server-protocol/) (LSP) and to
+java-index answers the questions you ask while reading Java code: *where is this defined, who
+calls it, what implements it, what is this library method's real signature, which config key does
+this `@Value` read?* It serves those answers to your editor over the
+[Language Server Protocol](https://microsoft.github.io/language-server-protocol/) (LSP), and to
 agents such as Claude Code over the [Model Context Protocol](https://modelcontextprotocol.io/)
-(MCP), from a single index per repository.
+(MCP), from one shared index per repository.
 
-## Why
+## The problem
 
-Full Java language servers such as jdtls compile your project. That makes them accurate, but also
-slow to start and expensive in memory, and each editor window and each git worktree pays that cost
-again. Agents are worse off: they mostly grep, and they guess at library APIs and at which `save()`
-a call really goes to.
+More and more Java code is written by agents, and the human's job shifts to reviewing it. Review
+means navigating: jumping to a definition, finding the callers of a changed method, checking what
+implements an interface. A diff view can't do that, so you open the code in an editor.
 
-java-index makes a different trade:
+That editor usually brings a full Java language server such as jdtls, which is built for *writing*
+code: it imports the build and compiles the project to give you errors, completion and
+refactorings. For review that is the wrong trade:
+
+* **It's heavy for a read-only job.** Each project costs a build import and typically gigabytes of
+  memory, while all you want is cmd+click and find references.
+* **Agents multiply it.** Agents often work in parallel, each in its own git worktree. A full
+  language server treats every worktree as a separate project: another import, another index,
+  another JVM.
+* **It fights the agent's build.** jdtls compiles the project itself, and for Maven projects it
+  writes to the same `target/` directory the build uses. When an agent runs `mvn` while the
+  worktree is open in your editor, the two builds run at once over the same output, and you get
+  failed or flaky builds, stale classes, and a language server busy rebuilding after every one.
+* **The agents themselves navigate blind.** They mostly grep, guess at library signatures, and
+  can't tell which of ten `save()` methods a call really goes to.
+
+java-index is built for this workflow. It gives your editor fast, accurate navigation across every
+worktree of a repository, at a fraction of the cost, and gives your agents the same index as
+tools. It never builds or writes anything in your project: it reads sources and jars, keeps its
+caches in its own directory, and asks the build tool only for the classpath, once per change to
+the build files. It is **not** a replacement for jdtls or your IDE: keep those for writing code by hand.
+
+## How it's different
 
 * **It indexes, it doesn't compile.** Sources are parsed with
   [turbine](https://github.com/google/turbine), Google's header compiler, into compact declaration
@@ -28,8 +49,59 @@ java-index makes a different trade:
   and type hierarchies. Agents get the same knowledge as name-based tools that return compact text
   with `file:line` locations.
 
-What it does **not** do: there are no compiler errors, completion or refactorings. Use it for
-navigation and understanding, alongside your build for correctness.
+## java-index vs jdtls
+
+jdtls is a full language server for *writing* Java; java-index only covers *reading* it. What
+each does:
+
+| | java-index | jdtls |
+| --- | :---: | :---: |
+| Definition, references, hover, implementations, type and call hierarchy, symbols | ✓ | ✓ |
+| Compiler errors and warnings | — | ✓ |
+| Completion | — | ✓ |
+| Refactoring, quick fixes (beyond imports), formatting | — | ✓ |
+| Debugging, running tests | — | ✓ (with extensions) |
+| Lombok and other annotation processors | — | ✓ |
+| Spring Boot / Quarkus config keys linked to Java | ✓ | — (separate Spring Tools) |
+| Tools for agents (MCP) | ✓ | — |
+| One shared process for every worktree of a repository | ✓ | — (one per window) |
+| Writes into your project (`target/`) | never | yes, builds alongside yours |
+
+Measured with the [benchmark](benchmark/README.md) on spring-petclinic, a small Spring Boot
+application (Apple M5 Pro, jdtls 1.63.0 with VS Code's default settings, java-index with the
+native relay; medians):
+
+| | java-index | jdtls |
+| --- | ---: | ---: |
+| Ready to answer, cold / warm start | 1.5 s / 0.4 s | 2.7 s / 1.8 s |
+| Memory, one window | 250 MB | 1.8 GB |
+| CPU time to open one window, cold | 7 s | 54 s |
+| Query latency (17 navigation queries) | 0.3–7.5 ms | 0.6–385 ms |
+| Find references on a common method | 2 ms | 385 ms |
+| 8 worktrees open at once: all ready | 1.6 s | 7.8 s |
+| 8 worktrees open at once: memory | 416 MB | 12.8 GB |
+| 8 worktrees open at once: CPU / disk | 11 s / < 1 MB | 428 s / 1.3 GB |
+| Correct answers (17 queries per window) | 17 / 17 | 17 / 17 |
+| References and implementations, location by location | same as jdtls | (baseline) |
+
+**The gap, explicitly.** The numbers above come from one small Maven project and 17 queries
+chosen by java-index's author; large codebases, Gradle and multi-module builds have not been
+benchmarked yet. jdtls is slower and heavier largely because it does more: it compiles the
+project, which java-index never does. And where jdtls compiles, java-index approximates:
+
+* **Lombok and annotation processors are not supported.** turbine does not run them, so members
+  generated by `@Getter`, `@Data`, `@Builder` and similar don't exist for java-index: calls to them
+  go unresolved.
+* **Generated sources only after a build.** Code under `target/generated-sources` (MapStruct,
+  protobuf, OpenAPI) is indexed once it exists; on a fresh clone it doesn't yet.
+* **Resolution is approximate.** Inference that depends on the assignment target falls back to
+  bounds, reflection and framework wiring are invisible, and when unsure java-index returns
+  nothing rather than guess. See [Limitations](#limitations).
+* **No diagnostics.** It cannot tell you that code doesn't compile; your build or CI does that.
+
+If you write Java by hand, use jdtls or an IDE. If you mostly review what agents write, often in
+several worktrees at once, java-index gives you the same navigation answers for a fraction of
+the time and memory.
 
 ## What you get
 
@@ -77,6 +149,18 @@ Requires JDK 21+.
 ```sh
 mvn package          # builds target/java-index.jar and runs the tests
 ```
+
+Optionally, build the relay as a native binary with a [GraalVM](https://www.graalvm.org/) JDK 25+.
+Each editor window or agent session runs one relay; the native one uses about 12 MB instead of a
+JVM's 60–80 MB and connects in milliseconds. The daemon still runs on a JVM.
+
+```sh
+JAVA_HOME=/path/to/graalvm mvn -Pnative package    # also writes target/jindex-relay
+```
+
+`target/jindex-relay` is used in place of `java -jar java-index.jar` in all the commands below. It
+finds `java-index.jar` next to itself and starts the daemon with `$JINDEX_JAVA`, `$JAVA_HOME/bin/java`
+or `java` from the PATH.
 
 Prebuilt releases are planned. Until then, build the jar and run it with Java 21+. It starts (or
 connects to) the repository's daemon:
