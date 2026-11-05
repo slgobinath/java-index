@@ -9,6 +9,8 @@ this `@Value` read?* It serves those answers to your editor over the
 agents such as Claude Code over the [Model Context Protocol](https://modelcontextprotocol.io/)
 (MCP), from one shared index per repository.
 
+https://github.com/user-attachments/assets/9984c749-106f-4f31-ac43-a0c9f10f1f90
+
 ## Contents
 
 - [The problem](#the-problem)

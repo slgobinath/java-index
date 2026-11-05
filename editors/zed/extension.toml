@@ -1,6 +1,6 @@
 id = "java-index"
 name = "Java Index"
-version = "0.1.1"
+version = "0.1.2"
 schema_version = 1
 authors = ["Gobinath Loganathan <slgobinath@gmail.com>"]
 description = "Java navigation via java-index: one shared index per repository, across worktrees."
