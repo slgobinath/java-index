@@ -74,6 +74,18 @@
   </dependencies>
 
   <build>
+    <resources>
+      <!-- version.properties carries ${project.version}, so this file stays the one place to bump. -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+        <includes><include>dev/javaindex/version.properties</include></includes>
+      </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+        <excludes><exclude>dev/javaindex/version.properties</exclude></excludes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

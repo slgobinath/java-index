@@ -19,6 +19,7 @@ package dev.javaindex.lsp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import dev.javaindex.Version;
 import dev.javaindex.classpath.SourceLocator;
 import dev.javaindex.config.ConfigFile;
 import dev.javaindex.config.ConfigIndex;
@@ -249,7 +250,7 @@ public final class JavaIndexServer
     folders.setChangeNotifications(true);
     caps.setWorkspace(new WorkspaceServerCapabilities(folders));
     return CompletableFuture.completedFuture(
-        new InitializeResult(caps, new ServerInfo("java-index", "0.1.1")));
+        new InitializeResult(caps, new ServerInfo("java-index", Version.VERSION)));
   }
 
   /** {@code inlayHints.parameterNames}: "literals" (default), "all" or "none". */

@@ -38,12 +38,34 @@ import org.eclipse.lsp4j.services.LanguageClient;
  *   jindex mcp [--root DIR]       MCP over stdio for agents (root defaults to the working dir)
  *   jindex lsp|mcp --no-daemon    serve in this process instead (no sharing)
  *   jindex daemon --socket PATH [--idle-minutes N]
+ *   jindex -h | --help | --version
  * </pre>
  */
 public final class Main {
   private Main() {}
 
+  private static final String USAGE =
+      """
+      usage: jindex [lsp] [--no-daemon]                   LSP over stdio, for editors
+             jindex mcp [--root DIR] [--no-daemon]        MCP over stdio, for agents
+             jindex daemon --socket PATH [--idle-minutes N]   the shared daemon (started for you)
+             jindex -h | --help | --version
+      """;
+
   public static void main(String[] args) throws Exception {
+    List<String> all = Arrays.asList(args);
+    if (all.contains("-h") || all.contains("--help")) {
+      System.out.print(USAGE);
+      return;
+    }
+    if (all.contains("--version")) {
+      System.out.println("jindex " + Version.VERSION);
+      return;
+    }
+    if (args.length > 0 && args[0].startsWith("-") && !args[0].equals("--no-daemon")) {
+      System.err.print("jindex: unknown option " + args[0] + "\n" + USAGE);
+      System.exit(2);
+    }
     String command = args.length > 0 && !args[0].startsWith("-") ? args[0] : "lsp";
     List<String> rest = Arrays.asList(args).subList(args.length > 0 && !args[0].startsWith("-") ? 1 : 0, args.length);
     boolean noDaemon = rest.contains("--no-daemon");
@@ -69,7 +91,7 @@ public final class Main {
         }
       }
       default -> {
-        System.err.println("usage: jindex [lsp|mcp|daemon] ...  (unknown command: " + command + ")");
+        System.err.print("jindex: unknown command " + command + "\n" + USAGE);
         System.exit(2);
       }
     }

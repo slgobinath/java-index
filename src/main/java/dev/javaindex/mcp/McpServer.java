@@ -23,6 +23,7 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import dev.javaindex.Version;
 import dev.javaindex.project.Project;
 import dev.javaindex.project.Worktree;
 import java.io.BufferedReader;
@@ -162,7 +163,7 @@ public final class McpServer {
     result.add("capabilities", capabilities);
     JsonObject info = new JsonObject();
     info.addProperty("name", "java-index");
-    info.addProperty("version", "0.1.1");
+    info.addProperty("version", Version.VERSION);
     result.add("serverInfo", info);
     result.addProperty("instructions", INSTRUCTIONS);
     return result;

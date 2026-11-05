@@ -1,0 +1,5 @@
+{
+  "resources": [
+    {"glob": "dev/javaindex/version.properties"}
+  ]
+}

@@ -9,6 +9,20 @@ this `@Value` read?* It serves those answers to your editor over the
 agents such as Claude Code over the [Model Context Protocol](https://modelcontextprotocol.io/)
 (MCP), from one shared index per repository.
 
+## Contents
+
+- [The problem](#the-problem)
+- [How it's different](#how-its-different)
+- [java-index vs jdtls](#java-index-vs-jdtls)
+- [What you get](#what-you-get) — [in your editor (LSP)](#in-your-editor-lsp), [for AI agents (MCP)](#for-ai-agents-mcp)
+- [Install](#install)
+- [Set up](#set-up)
+- [How it works](#how-it-works)
+- [Classpath](#classpath)
+- [Configuration](#configuration)
+- [Limitations](#limitations)
+- [License](#license)
+
 ## The problem
 
 More and more Java code is written by agents, and the human's job shifts to reviewing it. Review
@@ -149,8 +163,13 @@ tap:
 
 ```sh
 brew tap slgobinath/java-index https://github.com/slgobinath/java-index
+brew trust --formula slgobinath/java-index/java-index
 brew install java-index
+jindex --version
 ```
+
+Homebrew refuses formulae from third-party taps until you trust them, hence `brew trust`. Later
+releases install with `brew update && brew upgrade java-index`.
 
 This installs the `jindex` command: a small native relay, plus the daemon it starts, which runs on
 Homebrew's OpenJDK (set `JINDEX_JAVA` to use another JDK 21+).
@@ -178,7 +197,11 @@ from the PATH. Each editor window or agent session runs one relay; the native on
 ```
 jindex          # LSP over stdio, for editors       (same as: jindex lsp)
 jindex mcp      # MCP over stdio, for agents        (--root DIR to override the working directory)
+jindex --help   # usage; --version prints the version
 ```
+
+Run bare, `jindex` waits for an editor to speak LSP on stdin, so it looks like it hangs in a
+terminal; that is expected. Press Ctrl-D to leave.
 
 **Claude Code** (run in your repository):
 

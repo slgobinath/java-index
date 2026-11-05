@@ -16,6 +16,7 @@
 
 package dev.javaindex.relay;
 
+import dev.javaindex.Version;
 import dev.javaindex.daemon.Proxy;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -29,19 +30,39 @@ import java.util.List;
  * <pre>
  *   jindex-relay [lsp]              LSP over stdio
  *   jindex-relay mcp [--root DIR]   MCP over stdio
+ *   jindex-relay -h | --help | --version
  * </pre>
  */
 public final class RelayMain {
   private RelayMain() {}
 
+  private static final String USAGE =
+      """
+      usage: jindex [lsp]              LSP over stdio, for editors
+             jindex mcp [--root DIR]   MCP over stdio, for agents
+             jindex -h | --help | --version
+      """;
+
   public static void main(String[] args) throws Exception {
-    String command = args.length > 0 && !args[0].startsWith("-") ? args[0] : "lsp";
-    List<String> rest = Arrays.asList(args);
+    List<String> all = Arrays.asList(args);
+    if (all.contains("-h") || all.contains("--help")) {
+      System.out.print(USAGE);
+      return;
+    }
+    if (all.contains("--version")) {
+      System.out.println("jindex " + Version.VERSION);
+      return;
+    }
+    if (args.length > 0 && args[0].startsWith("-")) {
+      System.err.print("jindex: unknown option " + args[0] + "\n" + USAGE);
+      System.exit(2);
+    }
+    String command = args.length > 0 ? args[0] : "lsp";
     switch (command) {
       case "lsp" -> Proxy.run();
       case "mcp" -> {
-        int i = rest.indexOf("--root");
-        String root = i >= 0 && i + 1 < rest.size() ? rest.get(i + 1) : ".";
+        int i = all.indexOf("--root");
+        String root = i >= 0 && i + 1 < all.size() ? all.get(i + 1) : ".";
         Proxy.runMcp(Path.of(root).toAbsolutePath().normalize());
       }
       default -> {
