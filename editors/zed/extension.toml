@@ -1,0 +1,12 @@
+id = "java-index"
+name = "Java Index"
+version = "0.1.0"
+schema_version = 1
+authors = ["Gobinath Loganathan <slgobinath@gmail.com>"]
+description = "Java navigation via java-index: one shared index per repository, across worktrees."
+repository = "https://github.com/slgobinath/java-index"
+
+# The "Java" language (grammar, highlighting) comes from Zed's Java extension.
+[language_servers.java-index]
+name = "Java Index"
+languages = ["Java", "Properties", "YAML"]
