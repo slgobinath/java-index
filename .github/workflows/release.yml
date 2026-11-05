@@ -1,0 +1,154 @@
+# Copyright 2026 Gobinath Loganathan
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Builds a release when a version tag (v1.2.3) is pushed:
+#   - java-index.jar, built and tested once (it runs anywhere with Java 21+)
+#   - the native relay for each platform; GraalVM cannot cross-compile, so one runner per platform
+#   - one archive per platform: bin/jindex (native relay) + lib/java-index.jar + licenses
+#   - a GitHub release with the archives, the jar and their checksums
+#   - an updated Homebrew formula, Formula/java-index.rb, committed to main: this repository is
+#     its own tap (brew tap slgobinath/java-index https://github.com/slgobinath/java-index)
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  jar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Set the version from the tag
+        run: mvn -B -q versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
+      - name: Build and test
+        run: mvn -B package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          path: target/java-index.jar
+
+  relay:
+    needs: jar
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-latest
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          distribution: graalvm
+          java-version: "25"
+          cache: maven
+      - name: Build the native relay
+        run: mvn -B -q -Pnative -DskipTests package
+      - uses: actions/download-artifact@v4
+        with:
+          name: jar
+          path: dist/lib
+      - name: Assemble the archive
+        run: |
+          name="java-index-${GITHUB_REF_NAME#v}-${{ matrix.platform }}"
+          mkdir -p "dist/bin"
+          cp target/jindex-relay dist/bin/jindex
+          cp LICENSE NOTICE dist/
+          cp -R licenses dist/
+          mv dist "$name"
+          tar czf "$name.tar.gz" "$name"
+          echo "ARCHIVE=$name.tar.gz" >> "$GITHUB_ENV"
+          echo "DIR=$name" >> "$GITHUB_ENV"
+      - name: Smoke test (MCP through the native relay and the daemon)
+        shell: bash
+        run: |
+          export JINDEX_HOME="$RUNNER_TEMP/jindex" JINDEX_JAVA="$JAVA_HOME/bin/java"
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          list='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+          { printf '%s\n%s\n' "$init" "$list"; sleep 30; } | "$DIR/bin/jindex" mcp --root . | grep -m1 -q java_api
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.platform }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    needs: [jar, relay]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Name the jar and write checksums
+        run: |
+          cd assets
+          mv java-index.jar "java-index-${GITHUB_REF_NAME#v}.jar"
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: assets/SHA256SUMS
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: ${{ runner.temp }}
+      - name: Write the formula
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sum() { grep "java-index-$version-$1.tar.gz" "$RUNNER_TEMP/SHA256SUMS" | cut -d' ' -f1; }
+          mkdir -p Formula
+          sed -e "s/@VERSION@/$version/g" \
+              -e "s/@SHA_MACOS_ARM64@/$(sum macos-arm64)/" \
+              -e "s/@SHA_LINUX_X64@/$(sum linux-x64)/" \
+              -e "s/@SHA_LINUX_ARM64@/$(sum linux-arm64)/" \
+              .github/homebrew/java-index.rb.in > Formula/java-index.rb
+          cat Formula/java-index.rb
+      - name: Commit to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/java-index.rb
+          git commit -m "java-index ${GITHUB_REF_NAME#v}"
+          git push
