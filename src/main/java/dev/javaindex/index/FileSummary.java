@@ -105,6 +105,8 @@ public final class FileSummary {
     public final TurbineTyKind kind;
     public final Span span;
     public final List<String> typeParams;
+    /** The first bound of each type parameter, or null where it has none; parallel to typeParams. */
+    public final List<Tree> typeParamBounds;
     public final Tree.ClassTy superclass;
     public final List<Tree.ClassTy> interfaces;
     public final List<FieldDecl> fields;
@@ -119,6 +121,7 @@ public final class FileSummary {
         TurbineTyKind kind,
         Span span,
         List<String> typeParams,
+        List<Tree> typeParamBounds,
         Tree.ClassTy superclass,
         List<Tree.ClassTy> interfaces,
         List<FieldDecl> fields,
@@ -130,6 +133,7 @@ public final class FileSummary {
       this.kind = kind;
       this.span = span;
       this.typeParams = typeParams;
+      this.typeParamBounds = typeParamBounds;
       this.superclass = superclass;
       this.interfaces = interfaces;
       this.fields = fields;

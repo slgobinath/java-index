@@ -68,6 +68,19 @@ final class SourceClassModel implements ClassModel {
     return info.typeParams;
   }
 
+  @Override
+  public Map<String, TypeRef> typeParamBounds() {
+    Map<String, TypeRef> out = new java.util.LinkedHashMap<>();
+    Universe.Scope scope = new Universe.Scope(file, info, Set.copyOf(info.typeParams));
+    for (int i = 0; i < info.typeParams.size(); i++) {
+      TypeRef bound = universe.resolveType(info.typeParamBounds.get(i), scope);
+      if (bound != null) {
+        out.put(info.typeParams.get(i), bound);
+      }
+    }
+    return out;
+  }
+
   private Universe.Scope scope() {
     return new Universe.Scope(file, info, Set.of());
   }

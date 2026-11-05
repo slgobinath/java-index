@@ -30,6 +30,13 @@ public record TypeRef(String cls, List<TypeRef> args, String tvar, String prim, 
   public static final TypeRef STRING = ofClass("java/lang/String", List.of());
   public static final TypeRef VOID = ofPrim("void");
 
+  /**
+   * An unbounded wildcard type argument, {@code ?}. Kept distinct from {@code Object} so a member
+   * returning the type parameter it fills in can use that parameter's declared bound instead
+   * (AssertJ's {@code AbstractCollectionAssert<?, ...>} self type).
+   */
+  public static final TypeRef WILDCARD = ofVar("?");
+
   public static TypeRef ofClass(String binaryName, List<TypeRef> args) {
     return new TypeRef(binaryName, List.copyOf(args), null, null, 0);
   }
@@ -140,7 +147,7 @@ public record TypeRef(String cls, List<TypeRef> args, String tvar, String prim, 
       // e.g. a Function<? super T, ...>'s lambda parameter is a T.
       case Type.WildUpperBoundedTy w -> of(w.bound());
       case Type.WildLowerBoundedTy w -> of(w.bound());
-      case Type.WildTy w -> OBJECT;
+      case Type.WildTy w -> WILDCARD;
       case Type.IntersectionTy i -> i.bounds().isEmpty() ? OBJECT : of(i.bounds().get(0));
       default -> type.tyKind() == Type.TyKind.VOID_TY ? VOID : null;
     };

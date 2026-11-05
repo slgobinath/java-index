@@ -208,7 +208,7 @@ public final class Universe {
           w.upper()
               .or(w::lower)
               .map(bound -> resolveType(bound, scope))
-              .orElse(TypeRef.OBJECT);
+              .orElse(TypeRef.WILDCARD);
       default -> null;
     };
   }

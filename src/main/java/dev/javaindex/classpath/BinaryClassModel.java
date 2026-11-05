@@ -61,6 +61,19 @@ final class BinaryClassModel implements ClassModel {
   }
 
   @Override
+  public Map<String, TypeRef> typeParamBounds() {
+    Map<String, TypeRef> out = new java.util.LinkedHashMap<>();
+    for (var e : cls.typeParameterTypes().entrySet()) {
+      var bounds = e.getValue().upperBound().bounds();
+      TypeRef bound = bounds.isEmpty() ? null : TypeRef.of(bounds.get(0));
+      if (bound != null) {
+        out.put(e.getKey().name(), bound);
+      }
+    }
+    return out;
+  }
+
+  @Override
   public synchronized List<TypeRef> supertypes() {
     if (supertypes == null) {
       List<TypeRef> out = new ArrayList<>();

@@ -272,4 +272,156 @@ class ResolverTest {
     // explicitly typed lambda parameter
     assertSource(resolve(svc, "address());\n  }"), "src/a/Person.java", "address", 1);
   }
+
+  @Test
+  void resolvesMembersThroughTypeVariableBounds() {
+    file(
+        "src/a/Entity.java",
+        """
+        package a;
+        public class Entity {
+          public Integer getId() { return 0; }
+        }
+        """);
+    file(
+        "src/a/Named.java",
+        """
+        package a;
+        public interface Named { String name(); }
+        """);
+    file(
+        "src/a/Util.java",
+        """
+        package a;
+        import java.util.*;
+        class Util<E extends Entity> {
+          E held;
+          static <T extends Entity> T byId(Collection<T> entities, int id) {
+            for (T entity : entities) {
+              if (entity.getId() == id) { return entity; }
+            }
+            return null;
+          }
+          static <T extends Entity & Named> void both(T x) {
+            x.getId();
+            x.name();
+          }
+          static <T> void plain(T x) { x.hashCode(); }
+          static <T extends Entity> void list(List<T> items) { items.get(0).getId(); }
+          void field() { held.getId(); }
+        }
+        """);
+    String util = "src/a/Util.java";
+    assertSource(resolve(util, "getId() == id"), "src/a/Entity.java", "getId", 1);
+    // intersection bound: each bound's members
+    assertSource(resolve(util, "getId();\n    x.name"), "src/a/Entity.java", "getId", 1);
+    assertSource(resolve(util, "name();"), "src/a/Named.java", "name", 1);
+    // unbounded: Object's members
+    Target hash = resolve(util, "hashCode");
+    assertTrue(hash instanceof Target.Binary b && b.classBinary().equals("java/lang/Object"), "" + hash);
+    // a call returning a type variable
+    assertSource(resolve(util, "getId(); }\n  void"), "src/a/Entity.java", "getId", 1);
+    // a field typed by the class's type variable
+    assertSource(resolve(util, "getId(); }\n}"), "src/a/Entity.java", "getId", 1);
+  }
+
+  @Test
+  void infersLambdaParametersThroughSelfTypedGenericApis() {
+    // The shapes of AssertJ: assertThat(Collection<? extends E>) returns
+    // AbstractCollectionAssert<?, ...> with a wildcard self type, and assertThat(List) a
+    // ListAssert<E>; allMatch(Predicate<? super ELEMENT>) is inherited through self-typed classes.
+    file(
+        "src/x/AbstractIterableAssert.java",
+        """
+        package x;
+        import java.util.function.Predicate;
+        public abstract class AbstractIterableAssert<
+                SELF extends AbstractIterableAssert<SELF, ACTUAL, ELEMENT, ELEMENT_ASSERT>,
+                ACTUAL extends Iterable<? extends ELEMENT>,
+                ELEMENT,
+                ELEMENT_ASSERT>
+            implements ObjectEnumerableAssert<SELF, ELEMENT> {
+          public SELF hasSize(int expected) { return null; }
+          public SELF allMatch(Predicate<? super ELEMENT> predicate) { return null; }
+        }
+        """);
+    file(
+        "src/x/ObjectEnumerableAssert.java",
+        """
+        package x;
+        import java.util.function.Predicate;
+        public interface ObjectEnumerableAssert<SELF extends ObjectEnumerableAssert<SELF, ELEMENT>, ELEMENT> {
+          SELF anyMatch(Predicate<? super ELEMENT> predicate);
+        }
+        """);
+    file(
+        "src/x/AbstractListAssert.java",
+        """
+        package x;
+        import java.util.List;
+        public abstract class AbstractListAssert<
+                SELF extends AbstractListAssert<SELF, ACTUAL, ELEMENT, ELEMENT_ASSERT>,
+                ACTUAL extends List<? extends ELEMENT>,
+                ELEMENT,
+                ELEMENT_ASSERT>
+            extends AbstractIterableAssert<SELF, ACTUAL, ELEMENT, ELEMENT_ASSERT> {}
+        """);
+    file(
+        "src/x/AbstractCollectionAssert.java",
+        """
+        package x;
+        import java.util.Collection;
+        public abstract class AbstractCollectionAssert<
+                SELF extends AbstractCollectionAssert<SELF, ACTUAL, ELEMENT, ELEMENT_ASSERT>,
+                ACTUAL extends Collection<? extends ELEMENT>,
+                ELEMENT,
+                ELEMENT_ASSERT>
+            extends AbstractIterableAssert<SELF, ACTUAL, ELEMENT, ELEMENT_ASSERT> {}
+        """);
+    file(
+        "src/x/ListAssert.java",
+        """
+        package x;
+        import java.util.List;
+        public class ListAssert<ELEMENT>
+            extends AbstractListAssert<ListAssert<ELEMENT>, List<? extends ELEMENT>, ELEMENT, Object> {}
+        """);
+    file(
+        "src/x/Assertions.java",
+        """
+        package x;
+        import java.util.Collection;
+        import java.util.List;
+        public class Assertions {
+          public static <E> ListAssert<E> assertThat(List<? extends E> actual) { return null; }
+          public static <E> AbstractCollectionAssert<?, Collection<? extends E>, E, Object> assertThat(
+              Collection<? extends E> actual) { return null; }
+        }
+        """);
+    file(
+        "src/a/Visit.java",
+        """
+        package a;
+        public class Visit { public Integer getId() { return 0; } }
+        """);
+    file(
+        "src/a/VisitTest.java",
+        """
+        package a;
+        import static x.Assertions.assertThat;
+        import java.util.Collection;
+        import java.util.List;
+        class VisitTest {
+          Collection<Visit> getVisits() { return null; }
+          List<Visit> visitList() { return null; }
+          void test() {
+            assertThat(getVisits()).hasSize(1).allMatch(value -> value.getId() != null);
+            assertThat(visitList()).hasSize(1).anyMatch(v -> v.getId() != null);
+          }
+        }
+        """);
+    String test = "src/a/VisitTest.java";
+    assertSource(resolve(test, "getId() != null);\n    assertThat"), "src/a/Visit.java", "getId", 1);
+    assertSource(resolve(test, "getId() != null);\n  }"), "src/a/Visit.java", "getId", 1);
+  }
 }

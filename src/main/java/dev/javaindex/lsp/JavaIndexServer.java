@@ -993,8 +993,17 @@ public final class JavaIndexServer
               }
             }
           }
+          if (s.kind() == Symbol.Kind.CLASS) {
+            for (Queries.AnonymousType a : Queries.anonymousSubtypes(doc.worktree, doc.universe, s.owner())) {
+              out.add(location(a));
+            }
+          }
           return Either.forLeft(out);
         });
+  }
+
+  private Location location(Queries.AnonymousType a) {
+    return new Location(uri(a.file()), Symbols.range(a.summary().lines, a.start(), a.end()));
   }
 
   private Location location(TypeHandle h, FileSummary.Span span, Universe universe) {
@@ -1062,6 +1071,20 @@ public final class JavaIndexServer
             TypeHierarchyItem item = typeItem(h.type().binaryName, universe);
             if (item != null) {
               out.add(item);
+            }
+          }
+          for (Queries.AnonymousType a : Queries.anonymousSubtypes(w, universe, bin)) {
+            if (a.supertype().equals(bin)) {
+              Location loc = location(a);
+              // No data: an anonymous class has no subtypes of its own to expand.
+              out.add(
+                  new TypeHierarchyItem(
+                      "new " + TypeRef.simpleName(bin) + "() {…}",
+                      SymbolKind.Class,
+                      loc.getUri(),
+                      loc.getRange(),
+                      loc.getRange(),
+                      container(bin)));
             }
           }
           return out;

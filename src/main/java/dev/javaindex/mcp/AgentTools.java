@@ -373,6 +373,15 @@ final class AgentTools {
             .append(TypeRef.qualifiedName(h.type().binaryName)).append("  ")
             .append(h.rel()).append(':').append(h.file().lines.line(h.type().span.nameStart()) + 1).append('\n');
       }
+      List<Queries.AnonymousType> anonymous = Queries.anonymousSubtypes(w, u, bin);
+      if (!anonymous.isEmpty()) {
+        out.append("\n## Anonymous classes (").append(anonymous.size()).append(")\n");
+        for (Queries.AnonymousType a : anonymous) {
+          out.append("- new ").append(TypeRef.qualifiedName(a.supertype())).append("() {…}  ")
+              .append(a.rel()).append(':').append(a.summary().lines.line(a.start()) + 1)
+              .append("  ").append(a.line()).append('\n');
+        }
+      }
     } else {
       List<Universe.Hit> hits = members(u, u.find(bin), spec);
       if (hits.isEmpty()) {

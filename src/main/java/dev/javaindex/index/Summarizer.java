@@ -180,6 +180,9 @@ public final class Summarizer {
                 declarationStart(tokens, nameTok, decl.position()),
                 bodyEnd(tokens, nameTok)),
             decl.typarams().stream().map(p -> p.name().value()).toList(),
+            decl.typarams().stream()
+                .map(p -> p.bounds().isEmpty() ? null : (Tree) p.bounds().get(0))
+                .collect(java.util.stream.Collectors.toList()),
             decl.tykind() == TurbineTyKind.INTERFACE ? null : decl.xtnds().orElse(null),
             decl.tykind() == TurbineTyKind.INTERFACE && decl.xtnds().isPresent()
                 ? concat(decl.xtnds().get(), decl.impls())

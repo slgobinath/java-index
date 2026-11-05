@@ -18,6 +18,7 @@ package dev.javaindex.model;
 
 import com.google.turbine.model.TurbineTyKind;
 import java.util.List;
+import java.util.Map;
 
 /** A class or interface, backed either by a source summary or by bytecode. */
 public interface ClassModel {
@@ -26,6 +27,11 @@ public interface ClassModel {
   TurbineTyKind kind();
 
   List<String> typeParams();
+
+  /** The first declared bound of each type parameter that has one. */
+  default Map<String, TypeRef> typeParamBounds() {
+    return Map.of();
+  }
 
   /** Direct supertypes, expressed in terms of this class's type parameters. */
   List<TypeRef> supertypes();

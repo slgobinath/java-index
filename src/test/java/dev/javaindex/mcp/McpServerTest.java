@@ -90,6 +90,16 @@ class McpServerTest {
           }
         }
         """);
+    write(root, "src/demo/Repos.java",
+        """
+        package demo;
+
+        class Repos {
+          static Repository<User> inMemory() {
+            return new AbstractRepo<User>() {};
+          }
+        }
+        """);
     // A package named like the method (as in ai.signal1.commons.error): never a "use" of it.
     write(root, "src/demo/save/Thing.java", "package demo.save;\npublic class Thing {}\n");
     // The project's own classes also on the classpath, e.g. a module jar installed in ~/.m2.
@@ -163,6 +173,8 @@ class McpServerTest {
   void implementationsOutlineAndFindType() {
     String subs = call("java_implementations", "{\"symbol\":\"demo.Repository\"}");
     assertTrue(subs.contains("demo.AbstractRepo") && subs.contains("demo.UserRepo"), subs);
+    assertTrue(subs.contains("## Anonymous classes (1)"), subs);
+    assertTrue(subs.contains("- new demo.AbstractRepo() {…}  src/demo/Repos.java:5  return new AbstractRepo<User>() {};"), subs);
 
     String overrides = call("java_implementations", "{\"symbol\":\"Repository#save\"}");
     assertTrue(overrides.contains("demo.UserRepo#save  src/demo/UserRepo.java:5"), overrides);

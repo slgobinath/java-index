@@ -23,6 +23,7 @@ import dev.javaindex.index.Lines;
 import dev.javaindex.index.TypeHandle;
 import dev.javaindex.model.Member;
 import dev.javaindex.model.Target;
+import dev.javaindex.model.TypeRef;
 import dev.javaindex.model.Universe;
 import dev.javaindex.project.Project;
 import dev.javaindex.project.Worktree;
@@ -247,6 +248,52 @@ public final class Queries {
       }
     }
     return out;
+  }
+
+  /** An anonymous subclass {@code new T(...) { ... }}, located at the name {@code T}. */
+  public record AnonymousType(
+      Path file, String rel, FileSummary summary, int start, int end, String supertype, String line) {}
+
+  /**
+   * Anonymous classes in the worktree's sources that extend or implement {@code binaryName},
+   * directly or through one of its named subtypes. Turbine skips method bodies, so they are found
+   * on demand: only files whose identifier filter admits one of the types' names are read.
+   */
+  public static List<AnonymousType> anonymousSubtypes(Worktree w, Universe universe, String binaryName) {
+    Set<String> types = new HashSet<>(List.of(binaryName));
+    allSubtypes(w, binaryName).forEach(h -> types.add(h.type().binaryName));
+    Set<String> names = new HashSet<>();
+    for (String bin : types) {
+      String simple = TypeRef.simpleName(bin);
+      names.add(simple.substring(simple.lastIndexOf('.') + 1));
+    }
+    List<AnonymousType> out = Collections.synchronizedList(new ArrayList<>());
+    w.index().paths().parallelStream()
+        .forEach(
+            rel -> {
+              FileSummary summary = w.summary(rel);
+              if (summary == null || names.stream().noneMatch(summary::mayContain)) {
+                return;
+              }
+              String text = w.text(rel);
+              if (text == null || !text.contains("new")) {
+                return;
+              }
+              Path file = w.root().resolve(rel);
+              Lines lines = null;
+              for (Resolver.Anonymous a :
+                  new Resolver(universe, text, summary, file).anonymousClasses(names)) {
+                if (types.contains(a.supertype())) {
+                  lines = lines == null ? Lines.of(text) : lines;
+                  out.add(
+                      new AnonymousType(
+                          file, rel, summary, a.start(), a.end(), a.supertype(), line(text, lines, a.start())));
+                }
+              }
+            });
+    List<AnonymousType> sorted = new ArrayList<>(out);
+    sorted.sort(Comparator.comparing(AnonymousType::rel).thenComparingInt(AnonymousType::start));
+    return sorted;
   }
 
   /** A source position for any target; library declarations are located (extracted) on demand. */

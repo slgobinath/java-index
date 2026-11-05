@@ -35,6 +35,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -99,6 +100,67 @@ public final class Resolver {
       out.add(new Occurrence(t.start(i), t.end(i), targets));
     }
     return out;
+  }
+
+  /** An anonymous class {@code new T(...) { ... }}: the span of the name T and T's binary name. */
+  public record Anonymous(int start, int end, String supertype) {}
+
+  /**
+   * The anonymous classes in this file whose instantiated type is written with one of {@code
+   * simpleNames} (the last segment of a qualified name), with that type resolved.
+   */
+  public List<Anonymous> anonymousClasses(Set<String> simpleNames) {
+    List<Anonymous> out = new ArrayList<>();
+    for (int i = 0; i < t.size(); i++) {
+      if (!t.is(i, Token.NEW)) {
+        continue;
+      }
+      int j = i + 1;
+      int name = -1;
+      while (t.is(j, Token.IDENT)) {
+        name = j++;
+        if (!t.is(j, Token.DOT)) {
+          break;
+        }
+        j++;
+      }
+      if (name < 0 || !simpleNames.contains(t.text(name))) {
+        continue;
+      }
+      if (t.is(j, Token.LT)) {
+        j = angleEnd(j) + 1;
+      }
+      if (j <= 0 || !t.is(j, Token.LPAREN) || t.match(j) < 0 || !t.is(t.match(j) + 1, Token.LBRACE)) {
+        continue;
+      }
+      Symbol s = safeResolve(name);
+      if (s != null
+          && s.owner() != null
+          && (s.kind() == Symbol.Kind.CLASS || s.kind() == Symbol.Kind.CONSTRUCTOR)) {
+        out.add(new Anonymous(t.start(name), t.end(name), s.owner()));
+      }
+    }
+    return out;
+  }
+
+  /** The token closing the type-argument list opened at {@code open}, or -1. */
+  private int angleEnd(int open) {
+    int depth = 0;
+    for (int j = open; j < t.size(); j++) {
+      Token k = t.kind(j);
+      if (k == Token.LT) {
+        depth++;
+      } else if (TypeSyntax.isCloseAngle(k)) {
+        depth -= k == Token.GT ? 1 : k == Token.GTGT ? 2 : 3;
+        if (depth <= 0) {
+          return j;
+        }
+      } else if (k != Token.IDENT && k != Token.DOT && k != Token.COMMA && k != Token.COND
+          && k != Token.EXTENDS && k != Token.SUPER && k != Token.LBRACK && k != Token.RBRACK) {
+        return -1;
+      }
+    }
+    return -1;
   }
 
   private Symbol safeResolve(int i) {
@@ -586,6 +648,8 @@ public final class Resolver {
     final String anonEnum;
     final List<Local> locals = new ArrayList<>();
     final Set<String> tvars = new HashSet<>();
+    /** Token ranges of each type variable's bounds ({@code T extends A & B}), declared here. */
+    final Map<String, List<int[]>> tvarBounds = new HashMap<>();
     int parenDepth;
     int declFrom = -1;
     int declTo = -1;
@@ -707,7 +771,11 @@ public final class Resolver {
         } else {
           top.locals.add(new Local(t.text(nameTok), nameTok, LocalKind.LOCAL_CLASS, -1, -1));
         }
-        frames.push(new Frame(false, info, -1, -1, null));
+        Frame f = new Frame(false, info, -1, -1, null);
+        if (t.is(nameTok + 1, Token.LT)) {
+          typeParams(f, nameTok + 1);
+        }
+        frames.push(f);
         return;
       }
       int p = brace - 1;
@@ -801,19 +869,7 @@ public final class Resolver {
       int floor = statementStart(nameTok);
       for (int k = floor; k < j; k++) {
         if (t.is(k, Token.LT)) {
-          int depth = 0;
-          for (int m = k; m < j; m++) {
-            Token kk = t.kind(m);
-            if (kk == Token.LT) {
-              depth++;
-            } else if (TypeSyntax.isCloseAngle(kk)) {
-              break;
-            } else if (depth == 1
-                && kk == Token.IDENT
-                && (t.is(m - 1, Token.LT) || t.is(m - 1, Token.COMMA))) {
-              f.tvars.add(t.text(m));
-            }
-          }
+          typeParams(f, k);
           return;
         }
         if (t.is(k, Token.IDENT) || t.is(k, Token.LPAREN)) {
@@ -822,6 +878,72 @@ public final class Resolver {
           }
         }
       }
+    }
+
+    /** Records the type parameters, and their bounds, of the list opened by '<' at {@code open}. */
+    private void typeParams(Frame f, int open) {
+      int depth = 0;
+      String current = null;
+      int boundFrom = -1;
+      for (int m = open; m < t.size(); m++) {
+        Token k = t.kind(m);
+        if (k == Token.LT) {
+          depth++;
+        } else if (TypeSyntax.isCloseAngle(k)) {
+          int closes = k == Token.GT ? 1 : k == Token.GTGT ? 2 : 3;
+          if (depth - closes <= 0) {
+            addBound(f, current, boundFrom, m - 1);
+            return;
+          }
+          depth -= closes;
+        } else if (depth == 1 && (k == Token.COMMA || k == Token.AND)) {
+          addBound(f, current, boundFrom, m - 1);
+          boundFrom = m + 1;
+          if (k == Token.COMMA) {
+            current = null;
+            boundFrom = -1;
+          }
+        } else if (depth == 1 && current == null && k == Token.IDENT) {
+          current = t.text(m);
+          f.tvars.add(current);
+        } else if (depth == 1 && k == Token.EXTENDS) {
+          boundFrom = m + 1;
+        } else if (k == Token.LBRACE || k == Token.SEMI || k == Token.LPAREN) {
+          return;
+        }
+      }
+    }
+
+    private void addBound(Frame f, String name, int from, int to) {
+      if (name != null && from >= 0 && from <= to) {
+        f.tvarBounds.computeIfAbsent(name, n -> new ArrayList<>()).add(new int[] {from, to});
+      }
+    }
+
+    /**
+     * The bounds of type variable {@code name} declared in an enclosing method or class of this
+     * file, innermost first: {@code Object} when it has none, empty when it is not declared here.
+     */
+    List<TypeRef> bounds(String name, int depth) {
+      for (Frame f : frames) {
+        List<int[]> ranges = f.tvarBounds.get(name);
+        if (ranges != null) {
+          List<TypeRef> out = new ArrayList<>();
+          for (int[] r : ranges) {
+            TypeRef b = TypeSyntax.resolve(TypeSyntax.parse(t, r[0], r[1]), u, scope());
+            if (b != null && b.tvar() != null && depth < 4) {
+              out.addAll(bounds(b.tvar(), depth + 1));
+            } else if (b != null) {
+              out.add(b);
+            }
+          }
+          return out.isEmpty() ? List.of(TypeRef.OBJECT) : out;
+        }
+        if (f.tvars.contains(name)) {
+          return List.of(TypeRef.OBJECT);
+        }
+      }
+      return List.of();
     }
 
     private void detectLocal(Frame top, int i) {
@@ -988,7 +1110,22 @@ public final class Resolver {
 
   private record Static(String binaryName) implements State {}
 
-  private record Value(TypeRef type) implements State {}
+  /** A value of {@code type}; {@code more} holds the other bounds of an intersection type. */
+  private record Value(TypeRef type, List<TypeRef> more) implements State {
+    Value(TypeRef type) {
+      this(type, List.of());
+    }
+
+    List<TypeRef> types() {
+      if (more.isEmpty()) {
+        return List.of(type);
+      }
+      List<TypeRef> all = new ArrayList<>();
+      all.add(type);
+      all.addAll(more);
+      return all;
+    }
+  }
 
   private Symbol resolveIdent(Context ctx, int i) {
     active = ctx;
@@ -1050,9 +1187,11 @@ public final class Resolver {
       }
       case Value v -> {
         if (call || methodRef) {
-          return method(v.type, name, call ? i + 1 : -1);
+          List<Universe.Hit> hits = overridesRemoved(methodsOf(v, name));
+          Universe.Hit h = choose(hits, call ? i + 1 : -1);
+          return h == null ? null : callSymbol(h, hits, call ? i + 1 : -1);
         }
-        Universe.Hit f = u.findField(v.type, name);
+        Universe.Hit f = fieldOf(v, name);
         return f == null ? null : Symbol.of(f, List.of());
       }
     }
@@ -1593,17 +1732,17 @@ public final class Resolver {
         String name = t.text(seg.tok);
         Object v = variable(ctx, name, seg.tok);
         if (v instanceof Local l) {
-          yield value(localType(ctx, l));
+          yield value(ctx, localType(ctx, l));
         }
         if (v instanceof Universe.Hit h) {
-          yield value(h.type());
+          yield value(ctx, memberType(h, h.type()));
         }
         String bin = typeName(ctx, name);
         yield bin != null ? new Static(bin) : new Pkg(name);
       }
       case CALL -> {
         Universe.Hit h = choose(overridesRemoved(unqualifiedMethods(ctx, t.text(seg.tok))), seg.from);
-        yield h == null ? null : value(callType(h, seg.from));
+        yield h == null ? null : value(ctx, callType(h, seg.from));
       }
       case THIS -> {
         for (Frame f : ctx.frames) {
@@ -1647,23 +1786,23 @@ public final class Resolver {
             yield nested == null ? null : new Static(nested);
           }
           case Value v -> {
-            Universe.Hit f = u.findField(v.type, name);
-            yield f == null ? null : value(f.type());
+            Universe.Hit f = fieldOf(v, name);
+            yield f == null ? null : value(ctx, memberType(f, f.type()));
           }
         };
       }
       case CALL -> {
-        TypeRef owner =
+        List<Universe.Hit> hits =
             switch (s) {
-              case Static st -> TypeRef.ofClass(st.binaryName, List.of());
-              case Value v -> v.type;
+              case Static st -> u.findMethods(TypeRef.ofClass(st.binaryName, List.of()), t.text(seg.tok));
+              case Value v -> methodsOf(v, t.text(seg.tok));
               case Pkg p -> null;
             };
-        if (owner == null) {
+        if (hits == null) {
           return null;
         }
-        Universe.Hit h = choose(overridesRemoved(u.findMethods(owner, t.text(seg.tok))), seg.from);
-        return h == null ? null : value(callType(h, seg.from));
+        Universe.Hit h = choose(overridesRemoved(hits), seg.from);
+        return h == null ? null : value(ctx, callType(h, seg.from));
       }
       case INDEX -> {
         return s instanceof Value v && v.type.dims() > 0 ? value(v.type.component()) : null;
@@ -1697,7 +1836,54 @@ public final class Resolver {
   }
 
   private static Value value(TypeRef type) {
+    if (TypeRef.WILDCARD.equals(type)) {
+      return new Value(TypeRef.OBJECT);
+    }
     return type == null || type.tvar() != null ? null : new Value(type);
+  }
+
+  /** Like {@link #value(TypeRef)}, but a type variable declared in scope stands for its bounds. */
+  private static Value value(Context ctx, TypeRef type) {
+    if (type == null || type.tvar() == null || type.dims() > 0 || TypeRef.WILDCARD.equals(type)) {
+      return value(type);
+    }
+    List<TypeRef> bounds = ctx.bounds(type.tvar(), 0);
+    return bounds.isEmpty() ? null : new Value(bounds.get(0), bounds.subList(1, bounds.size()));
+  }
+
+  /**
+   * A member's type where the owner's type parameter it is declared as was filled in by {@code ?}:
+   * that parameter's declared bound, as seen from the owner (so a self type {@code SELF extends
+   * AbstractAssert<SELF, ...>} stays usable along a chain of calls).
+   */
+  private TypeRef memberType(Universe.Hit h, TypeRef type) {
+    if (!TypeRef.WILDCARD.equals(type) || h.member().type() == null) {
+      return type;
+    }
+    String declared = h.member().type().tvar();
+    ClassModel owner = declared == null ? null : u.find(h.owner());
+    TypeRef bound = owner == null ? null : owner.typeParamBounds().get(declared);
+    return bound == null ? TypeRef.OBJECT : bound.subst(h.bindings());
+  }
+
+  private List<Universe.Hit> methodsOf(Value v, String name) {
+    for (TypeRef type : v.types()) {
+      List<Universe.Hit> hits = u.findMethods(type, name);
+      if (!hits.isEmpty()) {
+        return hits;
+      }
+    }
+    return List.of();
+  }
+
+  private Universe.Hit fieldOf(Value v, String name) {
+    for (TypeRef type : v.types()) {
+      Universe.Hit f = u.findField(type, name);
+      if (f != null) {
+        return f;
+      }
+    }
+    return null;
   }
 
   /** Types an expression occupying exactly tokens [from, to]. */
@@ -1756,7 +1942,7 @@ public final class Resolver {
 
   /** A call's result type with the callee's own type variables inferred from the arguments. */
   private TypeRef callType(Universe.Hit h, int open) {
-    TypeRef ret = h.type();
+    TypeRef ret = memberType(h, h.type());
     if (ret == null || !hasTypeVars(ret)) {
       return ret;
     }
