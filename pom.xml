@@ -134,4 +134,38 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      The native relay: mvn -Pnative package, run with a GraalVM JDK, writes target/jindex-relay.
+      It contains only the stdio-to-daemon relay (RelayMain); the daemon always runs on a JVM.
+    -->
+    <profile>
+      <id>native</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+            <version>1.1.17</version>
+            <extensions>true</extensions>
+            <executions>
+              <execution>
+                <id>build-native</id>
+                <phase>package</phase>
+                <goals><goal>compile-no-fork</goal></goals>
+              </execution>
+            </executions>
+            <configuration>
+              <imageName>jindex-relay</imageName>
+              <mainClass>dev.javaindex.relay.RelayMain</mainClass>
+              <buildArgs>
+                <buildArg>-Os</buildArg>
+              </buildArgs>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
