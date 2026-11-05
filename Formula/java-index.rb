@@ -4,24 +4,24 @@
 class JavaIndex < Formula
   desc "Java code navigation for reviewing agent-written code (LSP and MCP)"
   homepage "https://github.com/slgobinath/java-index"
-  version "0.1.1"
+  version "0.1.2"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
-      url "https://github.com/slgobinath/java-index/releases/download/v0.1.1/java-index-0.1.1-macos-arm64.tar.gz"
-      sha256 "4468cde0e6ea50639d04fe244b3ad0554724ac962bc04f84e7a12ee146cbb0e1"
+      url "https://github.com/slgobinath/java-index/releases/download/v0.1.2/java-index-0.1.2-macos-arm64.tar.gz"
+      sha256 "c146c3156437640c42f1d29fe70154e202f6d8bd9ffbeca027fc4529f6eab234"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/slgobinath/java-index/releases/download/v0.1.1/java-index-0.1.1-linux-x64.tar.gz"
-      sha256 "bd5daeffbd7a5d523e2f38b8a2ee8e5c0c7ca6494bef867d4b3fcb2442425d93"
+      url "https://github.com/slgobinath/java-index/releases/download/v0.1.2/java-index-0.1.2-linux-x64.tar.gz"
+      sha256 "b273c4eb9aaac1af92da5b82bbb145c256250d17961e703439cc199e1a054d60"
     end
     on_arm do
-      url "https://github.com/slgobinath/java-index/releases/download/v0.1.1/java-index-0.1.1-linux-arm64.tar.gz"
-      sha256 "d70ca634bebb221148244ca371f238f7076e5cf2cdbd060a549cfcc1be20ae1c"
+      url "https://github.com/slgobinath/java-index/releases/download/v0.1.2/java-index-0.1.2-linux-arm64.tar.gz"
+      sha256 "24d7717b62206ff0ce753156edfdaab8d1dc66dcdcd5090386be39ddcc3a769e"
     end
   end
 
