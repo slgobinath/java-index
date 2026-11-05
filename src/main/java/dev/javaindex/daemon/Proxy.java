@@ -96,8 +96,12 @@ public final class Proxy {
                   });
       ByteBuffer buf = ByteBuffer.allocate(64 * 1024);
       while (ch.read(buf) >= 0) {
-        stdout.write(buf.array(), 0, buf.position());
-        stdout.flush();
+        try {
+          stdout.write(buf.array(), 0, buf.position());
+          stdout.flush();
+        } catch (IOException e) {
+          break; // the client closed its end; nothing left to relay to
+        }
         buf.clear();
       }
       upstream.interrupt();
