@@ -36,7 +36,7 @@ impl zed::Extension for JavaIndex {
             .or_else(|| worktree.which("jindex"))
             .ok_or_else(|| {
                 "jindex not found: set lsp.java-index.binary.path in settings \
-                 or put bin/jindex on PATH"
+                 or put jindex on PATH"
                     .to_string()
             })?;
         Ok(zed::Command {

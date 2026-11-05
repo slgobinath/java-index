@@ -78,24 +78,27 @@ Requires JDK 21+.
 mvn package          # builds target/java-index.jar and runs the tests
 ```
 
-The `jindex` command starts (or connects to) the repository's daemon:
+Prebuilt releases are planned. Until then, build the jar and run it with Java 21+. It starts (or
+connects to) the repository's daemon:
 
 ```
-jindex          # LSP over stdio, for editors        (same as: jindex lsp)
-jindex mcp      # MCP over stdio, for agents         (--root DIR to override the working directory)
+java -jar java-index.jar          # LSP over stdio, for editors   (same as: … lsp)
+java -jar java-index.jar mcp      # MCP over stdio, for agents    (--root DIR to override the working directory)
 ```
+
+Below, `/path/to/java-index.jar` is the built `target/java-index.jar`.
 
 **Claude Code** (run in your repository):
 
 ```sh
-claude mcp add java-index -- /path/to/java-index/bin/jindex mcp
+claude mcp add java-index -- java -jar /path/to/java-index.jar mcp
 ```
 
 **Neovim** (0.11+):
 
 ```lua
 vim.lsp.config('java-index', {
-  cmd = { '/path/to/java-index/bin/jindex' },
+  cmd = { 'java', '-jar', '/path/to/java-index.jar' },
   filetypes = { 'java' },
   root_markers = { '.git', 'pom.xml', 'build.gradle', 'build.gradle.kts' },
 })
@@ -106,14 +109,15 @@ vim.lsp.enable('java-index')
 
 ```toml
 [language-server.java-index]
-command = "/path/to/java-index/bin/jindex"
+command = "java"
+args = ["-jar", "/path/to/java-index.jar"]
 
 [[language]]
 name = "java"
 language-servers = ["java-index"]
 ```
 
-**Emacs** (eglot): `(add-to-list 'eglot-server-programs '(java-mode "/path/to/bin/jindex"))`
+**Emacs** (eglot): `(add-to-list 'eglot-server-programs '(java-mode "java" "-jar" "/path/to/java-index.jar"))`
 
 **Zed**: Zed's Java extension hard-wires jdtls, so [`editors/zed`](editors/zed) holds a small
 extension that adds `java-index` as a Java server. Keep the Java extension for syntax highlighting,
@@ -122,7 +126,7 @@ install `editors/zed` with `zed: install dev extension`, then in `settings.json`
 ```json
 "lsp": {
   "java-index": {
-    "binary": { "path": "/path/to/java-index/bin/jindex" }
+    "binary": { "path": "java", "arguments": ["-jar", "/path/to/java-index.jar"] }
   }
 },
 "languages": {
@@ -130,14 +134,14 @@ install `editors/zed` with `zed: install dev extension`, then in `settings.json`
 }
 ```
 
-**Sublime LSP / Kate**: register a custom stdio server with the same command for Java files.
+**Sublime LSP / Kate**: register a custom stdio server running `java -jar /path/to/java-index.jar` for Java files.
 
 ## How it works
 
 ```
-editor ──stdio──► jindex      (relay) ──unix socket──► daemon (one per repository)
-editor ──stdio──► jindex      (relay) ─────────────┤
-agent  ──stdio──► jindex mcp  (relay) ─────────────┘
+editor ──stdio──► java-index.jar      (relay) ──unix socket──► daemon (one per repository)
+editor ──stdio──► java-index.jar      (relay) ─────────────┤
+agent  ──stdio──► java-index.jar mcp  (relay) ─────────────┘
 ```
 
 * **Routing.** Each client runs a small relay. It finds the repository's git common dir (shared by
@@ -153,7 +157,7 @@ agent  ──stdio──► jindex mcp  (relay) ──────────�
   and lambda-based inference.
 * **References.** Each file summary carries a Bloom filter of its identifiers, so a search reads only
   files that may mention the name, then keeps the occurrences that resolve to the same declaration.
-* **Resources.** The relay is a small JVM (or a ~3 MB GraalVM native binary). The daemon uses a
+* **Resources.** The relay only forwards bytes; the daemon does the work. It uses a
   shrinkable heap, compacts when quiet and exits after 15 idle minutes.
 
 ## Classpath
@@ -174,8 +178,7 @@ Results are cached, keyed by the content of the build files, and recomputed when
 | `JINDEX_HOME` | `$XDG_CACHE_HOME/java-index` or `~/.cache/java-index` | sockets, daemon logs (`<key>.log`), extracted sources, cached classpaths |
 | `JINDEX_DAEMON_OPTS` | `-Xmx1g` | extra JVM flags for the daemon |
 | `JINDEX_IDLE_MINUTES` | `15` | daemon exits after this long with no connections |
-| `JINDEX_JAVA` | `java` | JDK (21+) for the daemon and the JVM relay |
-| `JINDEX_JAR` | next to the relay | the jar the native relay starts the daemon from |
+| `JINDEX_JAVA` | `java` | JDK (21+) the relay starts the daemon with |
 
 LSP initialization options:
 
@@ -186,7 +189,7 @@ LSP initialization options:
 | `inlayHints.types` | `true` | `var`, lambda parameter and chain type hints |
 | `deprecations` | `true` | mark uses of deprecated APIs |
 
-`jindex lsp --no-daemon` and `jindex mcp --no-daemon` serve in-process without a daemon, which is
+`java -jar java-index.jar lsp --no-daemon` and `… mcp --no-daemon` serve in-process without a daemon, which is
 useful for debugging.
 
 ## Limitations
