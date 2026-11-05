@@ -142,47 +142,55 @@ Grep is still the right tool for text search. java-index pays off for library AP
 signatures), common method names (`save`, `get`, `execute`) and type hierarchies. Its answers are
 strong evidence, not proof: reflection and framework wiring are invisible to it.
 
-## Getting started
+## Install
 
-Requires JDK 21+.
-
-```sh
-mvn package          # builds target/java-index.jar and runs the tests
-```
-
-Optionally, build the relay as a native binary with a [GraalVM](https://www.graalvm.org/) JDK 25+.
-Each editor window or agent session runs one relay; the native one uses about 12 MB instead of a
-JVM's 60–80 MB and connects in milliseconds. The daemon still runs on a JVM.
+**macOS (Apple Silicon) and Linux**, with [Homebrew](https://brew.sh). This repository is its own
+tap:
 
 ```sh
-JAVA_HOME=/path/to/graalvm mvn -Pnative package    # also writes target/jindex-relay
+brew tap slgobinath/java-index https://github.com/slgobinath/java-index
+brew install java-index
 ```
 
-`target/jindex-relay` is used in place of `java -jar java-index.jar` in all the commands below. It
-finds `java-index.jar` next to itself and starts the daemon with `$JINDEX_JAVA`, `$JAVA_HOME/bin/java`
-or `java` from the PATH.
+This installs the `jindex` command: a small native relay, plus the daemon it starts, which runs on
+Homebrew's OpenJDK (set `JINDEX_JAVA` to use another JDK 21+).
 
-Prebuilt releases are planned. Until then, build the jar and run it with Java 21+. It starts (or
-connects to) the repository's daemon:
+**Anywhere else** (Intel Macs, Windows, or without Homebrew): download `java-index-<version>.jar`
+from the [releases](https://github.com/slgobinath/java-index/releases) and use
+`java -jar /path/to/java-index-<version>.jar` (Java 21+) wherever this README says `jindex`.
+
+**From source** (JDK 21+):
+
+```sh
+mvn package                                        # target/java-index.jar, runs the tests
+JAVA_HOME=/path/to/graalvm-25 mvn -Pnative package # also target/jindex-relay, the native relay
+```
+
+`target/jindex-relay` works like `jindex`: it finds `java-index.jar` next to itself (or in
+`../target`, `../lib`) and starts the daemon with `$JINDEX_JAVA`, `$JAVA_HOME/bin/java` or `java`
+from the PATH. Each editor window or agent session runs one relay; the native one uses about
+12 MB instead of a JVM's 60–80 MB.
+
+## Set up
+
+`jindex` starts (or connects to) the repository's daemon:
 
 ```
-java -jar java-index.jar          # LSP over stdio, for editors   (same as: … lsp)
-java -jar java-index.jar mcp      # MCP over stdio, for agents    (--root DIR to override the working directory)
+jindex          # LSP over stdio, for editors       (same as: jindex lsp)
+jindex mcp      # MCP over stdio, for agents        (--root DIR to override the working directory)
 ```
-
-Below, `/path/to/java-index.jar` is the built `target/java-index.jar`.
 
 **Claude Code** (run in your repository):
 
 ```sh
-claude mcp add java-index -- java -jar /path/to/java-index.jar mcp
+claude mcp add java-index -- jindex mcp
 ```
 
 **Neovim** (0.11+):
 
 ```lua
 vim.lsp.config('java-index', {
-  cmd = { 'java', '-jar', '/path/to/java-index.jar' },
+  cmd = { 'jindex' },
   filetypes = { 'java' },
   root_markers = { '.git', 'pom.xml', 'build.gradle', 'build.gradle.kts' },
 })
@@ -193,39 +201,36 @@ vim.lsp.enable('java-index')
 
 ```toml
 [language-server.java-index]
-command = "java"
-args = ["-jar", "/path/to/java-index.jar"]
+command = "jindex"
 
 [[language]]
 name = "java"
 language-servers = ["java-index"]
 ```
 
-**Emacs** (eglot): `(add-to-list 'eglot-server-programs '(java-mode "java" "-jar" "/path/to/java-index.jar"))`
+**Emacs** (eglot): `(add-to-list 'eglot-server-programs '(java-mode "jindex"))`
 
 **Zed**: Zed's Java extension hard-wires jdtls, so [`editors/zed`](editors/zed) holds a small
 extension that adds `java-index` as a Java server. Keep the Java extension for syntax highlighting,
 install `editors/zed` with `zed: install dev extension`, then in `settings.json`:
 
 ```json
-"lsp": {
-  "java-index": {
-    "binary": { "path": "java", "arguments": ["-jar", "/path/to/java-index.jar"] }
-  }
-},
 "languages": {
   "Java": { "language_servers": ["java-index", "!jdtls", "..."] }
 }
 ```
 
-**Sublime LSP / Kate**: register a custom stdio server running `java -jar /path/to/java-index.jar` for Java files.
+The extension runs `jindex` from the PATH; to use the jar instead, add
+`"lsp": { "java-index": { "binary": { "path": "java", "arguments": ["-jar", "/path/to/java-index.jar"] } } }`.
+
+**Sublime LSP / Kate**: register a custom stdio server running `jindex` for Java files.
 
 ## How it works
 
 ```
-editor ──stdio──► java-index.jar      (relay) ──unix socket──► daemon (one per repository)
-editor ──stdio──► java-index.jar      (relay) ─────────────┤
-agent  ──stdio──► java-index.jar mcp  (relay) ─────────────┘
+editor ──stdio──► jindex      (relay) ──unix socket──► daemon (one per repository)
+editor ──stdio──► jindex      (relay) ─────────────┤
+agent  ──stdio──► jindex mcp  (relay) ─────────────┘
 ```
 
 * **Routing.** Each client runs a small relay. It finds the repository's git common dir (shared by
@@ -273,7 +278,7 @@ LSP initialization options:
 | `inlayHints.types` | `true` | `var`, lambda parameter and chain type hints |
 | `deprecations` | `true` | mark uses of deprecated APIs |
 
-`java -jar java-index.jar lsp --no-daemon` and `… mcp --no-daemon` serve in-process without a daemon, which is
+`java -jar java-index.jar lsp --no-daemon` and `… mcp --no-daemon` serve in-process without a daemon (the jar only; the native relay always relays), which is
 useful for debugging.
 
 ## Limitations
