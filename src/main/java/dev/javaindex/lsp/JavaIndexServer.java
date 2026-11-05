@@ -249,7 +249,7 @@ public final class JavaIndexServer
     folders.setChangeNotifications(true);
     caps.setWorkspace(new WorkspaceServerCapabilities(folders));
     return CompletableFuture.completedFuture(
-        new InitializeResult(caps, new ServerInfo("java-index", "0.1.0")));
+        new InitializeResult(caps, new ServerInfo("java-index", "0.1.1")));
   }
 
   /** {@code inlayHints.parameterNames}: "literals" (default), "all" or "none". */

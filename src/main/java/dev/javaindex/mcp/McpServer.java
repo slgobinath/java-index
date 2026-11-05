@@ -162,7 +162,7 @@ public final class McpServer {
     result.add("capabilities", capabilities);
     JsonObject info = new JsonObject();
     info.addProperty("name", "java-index");
-    info.addProperty("version", "0.1.0");
+    info.addProperty("version", "0.1.1");
     result.add("serverInfo", info);
     result.addProperty("instructions", INSTRUCTIONS);
     return result;
