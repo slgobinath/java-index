@@ -95,6 +95,24 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>dev.javaindex.Main</mainClass>
                 </transformer>
+                <!-- Drop the dependencies' LICENSE files; the texts below cover them all. -->
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/LICENSE</resource>
+                  <file>LICENSE</file>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/NOTICE</resource>
+                  <file>NOTICE</file>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/licenses/EPL-2.0.txt</resource>
+                  <file>licenses/EPL-2.0.txt</file>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/licenses/MIT-checker-qual.txt</resource>
+                  <file>licenses/MIT-checker-qual.txt</file>
+                </transformer>
               </transformers>
               <filters>
                 <filter>
@@ -105,6 +123,8 @@
                     <exclude>META-INF/*.RSA</exclude>
                     <exclude>module-info.class</exclude>
                     <exclude>META-INF/versions/*/module-info.class</exclude>
+                    <!-- lsp4j's about.html only points to the EPL, which NOTICE covers. -->
+                    <exclude>about.html</exclude>
                   </excludes>
                 </filter>
               </filters>

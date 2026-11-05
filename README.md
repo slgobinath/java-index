@@ -201,4 +201,5 @@ tool reports both, in separate groups).
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](LICENSE). The built jar bundles third-party
+libraries under Apache 2.0, EPL 2.0 and MIT; see [NOTICE](NOTICE).

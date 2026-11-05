@@ -1,0 +1,25 @@
+java-index
+Copyright 2026 Gobinath Loganathan
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The java-index.jar distribution bundles the following third-party software.
+Their license texts are in the licenses/ directory of the source repository
+and under META-INF/licenses/ in the jar.
+
+Apache License, Version 2.0 (see LICENSE)
+  - turbine                         https://github.com/google/turbine
+  - Guava, failureaccess            https://github.com/google/guava
+  - Error Prone annotations         https://github.com/google/error-prone
+  - J2ObjC annotations              https://github.com/google/j2objc
+  - JSR 305 annotations             https://github.com/findbugsproject/findbugs
+  - Gson                            https://github.com/google/gson
+  - SnakeYAML                       https://bitbucket.org/snakeyaml/snakeyaml
+
+Eclipse Public License, Version 2.0 (see licenses/EPL-2.0.txt)
+  - Eclipse LSP4J, LSP4J JSON-RPC   https://github.com/eclipse-lsp4j/lsp4j
+    Source code is available at the URL above.
+
+MIT License (see licenses/MIT-checker-qual.txt)
+  - Checker Framework qualifiers    https://github.com/typetools/checker-framework
+    Copyright 2004-present by the Checker Framework developers
