@@ -53,6 +53,8 @@ import java.util.logging.Logger;
  */
 public final class Worktree {
   private static final Logger LOG = Logger.getLogger(Worktree.class.getName());
+  /** Stored summaries of a worktree not opened for this long are deleted. */
+  private static final java.time.Duration SUMMARY_MAX_AGE = java.time.Duration.ofDays(14);
   private static final Set<String> BUILD_DIRS = Set.of("target", "build", "out", "bin");
 
   private final Project project;
@@ -196,16 +198,21 @@ public final class Worktree {
             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)));
     // Rewrite when files were parsed, or when the stored set holds summaries no file has any more.
     long distinct = summaries.values().stream().map(f -> f.hash).distinct().count();
-    if (parsed > 0 || saved.size() > distinct) {
-      List<FileSummary> current = List.copyOf(summaries.values());
-      project.background().execute(() -> {
-        try {
+    boolean rewrite = parsed > 0 || saved.size() > distinct;
+    List<FileSummary> current = rewrite ? List.copyOf(summaries.values()) : List.of();
+    project.background().execute(() -> {
+      try {
+        if (rewrite) {
           SummaryStore.save(stored, current);
-        } catch (IOException e) {
-          LOG.log(Level.WARNING, "could not save summaries to " + stored, e);
+        } else {
+          SummaryStore.touch(stored);
         }
-      });
-    }
+        // Agents create and drop worktrees freely; their stored summaries shouldn't pile up.
+        SummaryStore.prune(stored.getParent(), SUMMARY_MAX_AGE);
+      } catch (IOException e) {
+        LOG.log(Level.WARNING, "could not save summaries to " + stored, e);
+      }
+    });
     // Return parse garbage to the OS promptly; the daemon is long-lived and mostly idle.
     System.gc();
   }

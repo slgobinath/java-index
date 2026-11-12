@@ -31,9 +31,13 @@ import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -126,6 +130,27 @@ public final class SummaryStore {
   }
 
   /** Writes {@code summaries} to {@code file}, replacing it atomically. */
+  /** Marks {@code file} as used, for {@link #prune}. */
+  public static void touch(Path file) throws IOException {
+    if (Files.exists(file)) {
+      Files.setLastModifiedTime(file, FileTime.fromMillis(System.currentTimeMillis()));
+    }
+  }
+
+  /** Deletes the stores in {@code dir} not saved or touched within {@code maxAge}. */
+  public static void prune(Path dir, Duration maxAge) throws IOException {
+    long cutoff = System.currentTimeMillis() - maxAge.toMillis();
+    try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, "*.bin")) {
+      for (Path f : files) {
+        if (Files.getLastModifiedTime(f).toMillis() < cutoff) {
+          Files.deleteIfExists(f);
+        }
+      }
+    } catch (NoSuchFileException e) {
+      // nothing stored yet
+    }
+  }
+
   public static void save(Path file, Collection<FileSummary> summaries) throws IOException {
     Files.createDirectories(file.getParent());
     Path tmp = Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");

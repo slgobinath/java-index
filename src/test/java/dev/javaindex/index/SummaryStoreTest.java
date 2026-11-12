@@ -25,6 +25,9 @@ import dev.javaindex.index.FileSummary.MethodDecl;
 import dev.javaindex.index.FileSummary.TypeInfo;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -85,6 +88,25 @@ class SummaryStoreTest {
     Path junk = dir.resolve("junk.bin");
     Files.write(junk, new byte[] {1, 2, 3});
     assertEquals(0, SummaryStore.load(junk).size());
+  }
+
+  @Test
+  void prunesStoresNotUsedRecently() throws Exception {
+    Path old = dir.resolve("old.bin");
+    Path recent = dir.resolve("recent.bin");
+    Path touched = dir.resolve("touched.bin");
+    for (Path p : List.of(old, recent, touched)) {
+      SummaryStore.save(p, List.of());
+    }
+    FileTime monthAgo = FileTime.from(Instant.now().minus(Duration.ofDays(30)));
+    Files.setLastModifiedTime(old, monthAgo);
+    Files.setLastModifiedTime(touched, monthAgo);
+    SummaryStore.touch(touched);
+
+    SummaryStore.prune(dir, Duration.ofDays(14));
+    assertTrue(Files.notExists(old));
+    assertTrue(Files.exists(recent) && Files.exists(touched));
+    SummaryStore.prune(dir.resolve("missing"), Duration.ofDays(14));
   }
 
   /** Every field a summary carries, trees with their positions. */
