@@ -32,12 +32,14 @@ export JAVA21_HOME=/path/to/jdk-21 JAVA25_HOME=/path/to/jdk-25 GRAALVM_HOME=/pat
 
 python3 bench.py --servers java-index,java-index-native,jdtls,jdtls-light
 python3 bench.py --project jackson-databind --servers java-index,java-index-native,jdtls,jdtls-light
+python3 bench.py --project hibernate-orm --servers java-index,java-index-native,jdtls
 python3 worktrees.py --servers java-index,java-index-native,jdtls,jdtls-light
 ```
 
 `setup.sh` builds java-index (and its native relay when `GRAALVM_HOME` is set), downloads jdtls
-1.63.0, builds java-language-server and clones spring-petclinic and jackson-databind, all at
-pinned versions, into `.work/`. It also downloads both projects' dependencies, so no measured startup includes network
+1.63.0, builds java-language-server and clones spring-petclinic, jackson-databind and Hibernate ORM, all at
+pinned versions, into `.work/`. It also downloads the projects' dependencies and builds Hibernate (with
+`JAVA25_HOME`) to generate its parser sources, so no measured startup includes network
 downloads. Each script writes `results/<timestamp>/` with one JSON file and one server log per
 run, and a `report.md` with the tables. `python3 report.py DIR...` rebuilds a report and can
 merge several results directories.
@@ -54,6 +56,13 @@ merge several results directories.
 * `--project jackson-databind` runs on [jackson-databind](https://github.com/FasterXML/jackson-databind)
   2.23.0 (1,300 Java files, 260k lines) instead of petclinic, with its own queries in
   [`cases_jackson.py`](cases_jackson.py).
+* `--project hibernate-orm` runs on [Hibernate ORM](https://github.com/hibernate/hibernate-orm)
+  7.4.15 (22,800 Java files, 2.7M lines, a multi-module Gradle 9 build), with
+  [`cases_hibernate.py`](cases_hibernate.py). jdtls gets
+  `java.import.gradle.annotationProcessing.enabled: false`, without which its Gradle import fails
+  on Gradle 9. jdtls-light is left out: it was not ready after 18 minutes.
+* `--repo DIR --cases FILE --out DIR` benchmarks any local project with a queries file kept
+  outside this repository (see `cases.py` for the format).
 
 ### `worktrees.py`: parallel worktrees
 
@@ -71,7 +80,8 @@ check fails for it without meaning a leak.)
 ## What is measured
 
 A small LSP client (`lsp.py`) starts each server on the repository and sends the same queries,
-defined in [`cases.py`](cases.py) and [`cases_jackson.py`](cases_jackson.py) before any server was run.
+defined in [`cases.py`](cases.py), [`cases_jackson.py`](cases_jackson.py) and
+[`cases_hibernate.py`](cases_hibernate.py) before any server was run.
 
 * **Ready**: time from launch until a go-to-definition into project code returns the right
   answer. Servers report readiness differently, so this is measured the same way for all.

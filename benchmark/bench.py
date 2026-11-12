@@ -22,6 +22,7 @@ correctness and resource usage. Run ./setup.sh first. Standard library only.
 
 import argparse
 import importlib
+import importlib.util
 import datetime
 import glob
 import json
@@ -45,7 +46,15 @@ REPO = PETCLINIC  # --project picks another repository, --spaces a copy indented
 PROJECTS = {
     "spring-petclinic": "cases",
     "jackson-databind": "cases_jackson",
+    "hibernate-orm": "cases_hibernate",
 }
+# Projects built with Gradle: jdtls imports them with Gradle (petclinic has both build files and
+# is imported with Maven).
+GRADLE_PROJECTS = {"hibernate-orm"}
+# The JDK the project's own build needs, set as JAVA_HOME for every server (java-index runs the
+# build tool for the classpath, jdtls imports with it). Hibernate's build requires JDK 25.
+BUILD_JAVA_HOME = {"hibernate-orm": "JAVA25_HOME"}
+BUILD_ENV = {}
 SERVERS_DIR = os.path.join(WORK, "servers")
 JAVA_INDEX_JAR = os.path.join(BENCH, "..", "target", "java-index.jar")
 JAVA_INDEX_RELAY = os.path.join(BENCH, "..", "target", "jindex-relay")
@@ -204,7 +213,9 @@ def target_label(loc, repo=None):
     u = loc.get("targetUri") or loc.get("uri")
     r = loc.get("targetSelectionRange") or loc.get("range")
     decoded = urllib.parse.unquote(u)
-    if decoded.startswith("file://" + (repo or REPO) + "/src/"):
+    # Anywhere in the repository, module directories and generated sources included. Library
+    # sources that java-index extracts live in its state directory, outside the repository.
+    if decoded.startswith("file://" + (repo or REPO) + "/"):
         path = decoded[len("file://"):]
         with open(path) as f:
             text = f.read().split("\n")[r["start"]["line"]].strip()
@@ -322,6 +333,7 @@ def run_server(name, spec, mode, state, reps, ready_timeout, log_path):
         shutil.rmtree(state)
     os.makedirs(state, exist_ok=True)
     env = dict(os.environ)
+    env.update(BUILD_ENV)
     env.update(spec["env"](state))
     preexisting = set(processes())  # never sample or stop daemons that were already running
 
@@ -422,8 +434,7 @@ def environment():
         "machine": "%s, %d GB, %s %s" % (cpu, mem // 2**30, platform.system(), platform.release()),
         "java21": version([java("JAVA21_HOME"), "-version"]),
         "java25": version([java("JAVA25_HOME"), "-version"]),
-        "spring-petclinic": git(PETCLINIC),
-        "jackson-databind": git(os.path.join(WORK, "repos", "jackson-databind")),
+        **{p: git(os.path.join(WORK, "repos", p)) for p in PROJECTS},
         "java-index": git(os.path.join(BENCH, "..")),
         "jdtls": os.path.basename(glob.glob(os.path.join(SERVERS_DIR, "jdt-language-server-*.tar.gz"))[0])
                  if glob.glob(os.path.join(SERVERS_DIR, "jdt-language-server-*.tar.gz")) else None,
@@ -448,6 +459,14 @@ def spaces_copy():
     return dest
 
 
+def load_cases(path):
+    """A cases module from a file path, for repositories whose queries live outside this directory."""
+    spec = importlib.util.spec_from_file_location("cases_" + os.path.basename(path)[:-3], path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
     global REPO, C
     specs = server_specs()
@@ -459,22 +478,40 @@ def main():
     parser.add_argument("--spaces", action="store_true",
                         help="run on a copy of petclinic indented with spaces instead of tabs")
     parser.add_argument("--project", default="spring-petclinic", choices=sorted(PROJECTS))
+    parser.add_argument("--repo", help="any other local repository; needs --cases")
+    parser.add_argument("--cases", help="queries for --repo, a file shaped like cases.py")
+    parser.add_argument("--out", help="results directory (default results/<timestamp>-<variant>)")
     args = parser.parse_args()
     variant = "spaces" if args.spaces else "tabs"
-    if args.project != "spring-petclinic":
+    if args.repo:
+        if not args.cases:
+            raise SystemExit("--repo needs --cases")
+        REPO = os.path.abspath(args.repo)
+        C = load_cases(args.cases)
+        args.project = variant = os.path.basename(REPO)
+    elif args.project != "spring-petclinic":
         if args.spaces:
             raise SystemExit("--spaces only applies to spring-petclinic")
         REPO = os.path.join(WORK, "repos", args.project)
         C = importlib.import_module(PROJECTS[args.project])
         variant = args.project
+        if args.project in GRADLE_PROJECTS:
+            JDTLS_SETTINGS["java"]["import"]["gradle"]["enabled"] = True  # shared by both jdtls specs
+            # Off, unlike vscode-java's default: with it on, jdtls 1.63's annotation processing init
+            # script fails on Gradle 9 ("Resolution of the configuration ':...:annotationProcessor'
+            # was attempted without an exclusive lock") and the import never completes.
+            JDTLS_SETTINGS["java"]["import"]["gradle"]["annotationProcessing"] = {"enabled": False}
+        if args.project in BUILD_JAVA_HOME:
+            BUILD_ENV["JAVA_HOME"] = os.path.dirname(os.path.dirname(java(BUILD_JAVA_HOME[args.project])))
     elif args.spaces:
         REPO = spaces_copy()
 
     java("JAVA21_HOME"), java("JAVA25_HOME")
-    out = os.path.join(BENCH, "results", datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + variant)
+    out = args.out or os.path.join(BENCH, "results", datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + variant)
     os.makedirs(out)
     with open(os.path.join(out, "environment.json"), "w") as f:
         json.dump(dict(environment(), project=args.project,
+                       cases_file=os.path.abspath(args.cases) if args.repo else None,
                        indentation=("spaces" if args.spaces else "tabs") if args.project == "spring-petclinic" else "as committed"), f, indent=2)
     for name in args.servers.split(","):
         state = os.path.join(WORK, "state", variant, name)

@@ -29,6 +29,7 @@ JDTLS_TARBALL=jdt-language-server-1.63.0-202610191322.tar.gz
 JLS_COMMIT=58daaa29a0e2fe22764283607da6801cf8b493b9
 PETCLINIC_COMMIT=500158f732419217507c7656904b8e6aa1bcc0d6
 JACKSON_COMMIT=4d6a0a23a8640e37bcbf37bc351dbe8cb16d7003  # jackson-databind-2.23.0
+HIBERNATE_TAG=7.4.15  # 4d66f592cf52210264a18697c76b3936643d86b9
 
 mkdir -p "$WORK/servers" "$WORK/repos"
 
@@ -71,5 +72,13 @@ if [ ! -d "$WORK/repos/jackson-databind" ]; then
 fi
 git -C "$WORK/repos/jackson-databind" checkout -q "$JACKSON_COMMIT"
 (cd "$WORK/repos/jackson-databind" && JAVA_HOME=$JAVA21_HOME ./mvnw -q dependency:go-offline dependency:sources)
+
+echo "== hibernate-orm $HIBERNATE_TAG (for bench.py --project hibernate-orm)"
+if [ ! -d "$WORK/repos/hibernate-orm" ]; then
+  git clone -q --depth 1 --branch "$HIBERNATE_TAG" https://github.com/hibernate/hibernate-orm.git "$WORK/repos/hibernate-orm"
+fi
+# Build once (its build needs JDK 25): downloads the dependencies and generates the HQL parser
+# sources, as in a checkout someone has already built.
+(cd "$WORK/repos/hibernate-orm" && JAVA_HOME=$JAVA25_HOME ./gradlew -q testClasses)
 
 echo "ready: python3 bench.py"

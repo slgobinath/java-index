@@ -57,7 +57,12 @@ def main(dirs):
     env = json.load(open(os.path.join(out, "environment.json")))
     global C
     project = env.get("project", "spring-petclinic")
-    C = importlib.import_module({"spring-petclinic": "cases", "jackson-databind": "cases_jackson"}[project])
+    if env.get("cases_file"):
+        import bench
+        C = bench.load_cases(env["cases_file"])
+    else:
+        C = importlib.import_module({"spring-petclinic": "cases", "jackson-databind": "cases_jackson",
+                                     "hibernate-orm": "cases_hibernate"}[project])
     env["results"] = ", ".join(os.path.basename(os.path.normpath(d)) for d in dirs)
     servers = [s for s in ("java-index", "java-index-native", "jdtls", "jdtls-light", "java-language-server") if s in runs] + \
               [s for s in runs if s not in ("java-index", "java-index-native", "jdtls", "jdtls-light", "java-language-server")]
