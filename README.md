@@ -1,19 +1,18 @@
 # java-index
 
-**Java code navigation for reviewing what your AI agents write.**
+Fast, lightweight Java code navigation, mainly for reviewing code that AI agents write.
 
-java-index answers the questions you ask while reading Java code: *where is this defined, who
-calls it, what implements it, what is this library method's real signature, which config key does
-this `@Value` read?* It serves those answers to your editor over the
-[Language Server Protocol](https://microsoft.github.io/language-server-protocol/) (LSP), and to
-agents such as Claude Code over the [Model Context Protocol](https://modelcontextprotocol.io/)
-(MCP), from one shared index per repository.
+It handles the everyday questions you have when reading Java: where is this defined, who calls it,
+what implements it, what does this library method actually look like, which config key does this
+`@Value` read. Your editor talks to it over
+[LSP](https://microsoft.github.io/language-server-protocol/), and agents like Claude Code talk to
+it over [MCP](https://modelcontextprotocol.io/). Both share the same index.
 
 https://github.com/user-attachments/assets/9984c749-106f-4f31-ac43-a0c9f10f1f90
 
 ## Contents
 
-- [The problem](#the-problem)
+- [Purpose](#purpose)
 - [How it's different](#how-its-different)
 - [java-index vs jdtls](#java-index-vs-jdtls)
 - [What you get](#what-you-get) — [in your editor (LSP)](#in-your-editor-lsp), [for AI agents (MCP)](#for-ai-agents-mcp)
@@ -25,50 +24,33 @@ https://github.com/user-attachments/assets/9984c749-106f-4f31-ac43-a0c9f10f1f90
 - [Limitations](#limitations)
 - [License](#license)
 
-## The problem
+## Purpose
 
-More and more Java code is written by agents, and the human's job shifts to reviewing it. Review
-means navigating: jumping to a definition, finding the callers of a changed method, checking what
-implements an interface. A diff view can't do that, so you open the code in an editor.
+More and more of our Java code is written by agents, and we spend more time reviewing it than
+writing it. Reviewing needs basic navigation: go to definition, find callers, check
+implementations. Full language servers like jdtls can do that, but they're built for writing code.
+They're heavy, they start over for every git worktree, and they compile the project into the same
+`target/` folder the agent's build uses.
 
-That editor usually brings a full Java language server such as jdtls, which is built for *writing*
-code: it imports the build and compiles the project to give you errors, completion and
-refactorings. For review that is the wrong trade:
-
-* **It's heavy for a read-only job.** Each project costs a build import and typically gigabytes of
-  memory, while all you want is cmd+click and find references.
-* **Agents multiply it.** Agents often work in parallel, each in its own git worktree. A full
-  language server treats every worktree as a separate project: another import, another index,
-  another JVM.
-* **It fights the agent's build.** jdtls compiles the project itself, and for Maven projects it
-  writes to the same `target/` directory the build uses. When an agent runs `mvn` while the
-  worktree is open in your editor, the two builds run at once over the same output, and you get
-  failed or flaky builds, stale classes, and a language server busy rebuilding after every one.
-* **The agents themselves navigate blind.** They mostly grep, guess at library signatures, and
-  can't tell which of ten `save()` methods a call really goes to.
-
-java-index is built for this workflow. It gives your editor fast, accurate navigation across every
-worktree of a repository, at a fraction of the cost, and gives your agents the same index as
-tools. It never builds or writes anything in your project: it reads sources and jars, keeps its
-caches in its own directory, and asks the build tool only for the classpath, once per change to
-the build files. It is **not** a replacement for jdtls or your IDE: keep those for writing code by hand.
+java-index only does the reading part. One small daemon serves every worktree of a repository,
+agents get the same index as tools, and it never builds or writes anything in your project. It's
+not a replacement for jdtls or your IDE. If you write Java by hand, keep using those.
 
 ## How it's different
 
-* **It indexes, it doesn't compile.** Sources are parsed with
-  [turbine](https://github.com/google/turbine), Google's header compiler, into compact declaration
-  summaries. Method bodies are resolved lazily from the token stream when you ask about them.
-* **One daemon per repository.** Every editor window, agent session and git worktree of a
-  repository shares one background daemon and one index. Unchanged files, dependency symbols and
-  library sources are held once; each worktree keeps only its own changes.
-* **Same answers for people and agents.** Editors get go-to-definition, references, hover, call
-  and type hierarchies. Agents get the same knowledge as name-based tools that return compact text
-  with `file:line` locations.
+* **No compiling.** Sources are parsed with [turbine](https://github.com/google/turbine) (Google's
+  header compiler) into small declaration summaries. Method bodies are only looked at when you ask
+  about something inside them.
+* **One daemon per repo.** All your editor windows, agent sessions and worktrees share one
+  process. Files that are the same across worktrees are stored once; each worktree only keeps
+  what it changed.
+* **Same answers for you and your agents.** The editor gets definitions, references, hover and
+  hierarchies. Agents get the same information as simple tools that return text with `file:line`
+  locations.
 
 ## java-index vs jdtls
 
-jdtls is a full language server for *writing* Java; java-index only covers *reading* it. What
-each does:
+jdtls is a full language server for writing Java. java-index only covers reading it.
 
 | | java-index | jdtls |
 | --- | :---: | :---: |
@@ -83,9 +65,9 @@ each does:
 | One shared process for every worktree of a repository | ✓ | — (one per window) |
 | Writes into your project (`target/`) | never | yes, builds alongside yours |
 
-Measured with the [benchmark](benchmark/README.md) on spring-petclinic, a small Spring Boot
-application (Apple M5 Pro, jdtls 1.63.0 with VS Code's default settings, java-index with the
-native relay; medians):
+Numbers from the [benchmark](benchmark/README.md) on spring-petclinic, a small Spring Boot app
+(Apple M5 Pro, jdtls 1.63.0 with VS Code's default settings, java-index with the native relay;
+medians):
 
 | | java-index | jdtls |
 | --- | ---: | ---: |
@@ -100,24 +82,24 @@ native relay; medians):
 | Correct answers (17 queries per window) | 17 / 17 | 17 / 17 |
 | References and implementations, location by location | same as jdtls | (baseline) |
 
-**The gap, explicitly.** The numbers above come from one small Maven project and 17 queries
-chosen by java-index's author; large codebases, Gradle and multi-module builds have not been
-benchmarked yet. jdtls is slower and heavier largely because it does more: it compiles the
-project, which java-index never does. And where jdtls compiles, java-index approximates:
+To be fair about these numbers: it's one small Maven project and 17 queries we picked ourselves. We
+haven't benchmarked large codebases, Gradle or multi-module builds yet. jdtls is also doing a lot
+more work, since it compiles the project. Where jdtls compiles, java-index has to approximate,
+which means:
 
-* **Lombok and annotation processors are not supported.** turbine does not run them, so members
-  generated by `@Getter`, `@Data`, `@Builder` and similar don't exist for java-index: calls to them
-  go unresolved.
-* **Generated sources only after a build.** Code under `target/generated-sources` (MapStruct,
-  protobuf, OpenAPI) is indexed once it exists; on a fresh clone it doesn't yet.
-* **Resolution is approximate.** Inference that depends on the assignment target falls back to
-  bounds, reflection and framework wiring are invisible, and when unsure java-index returns
-  nothing rather than guess. See [Limitations](#limitations).
-* **No diagnostics.** It cannot tell you that code doesn't compile; your build or CI does that.
+* **No Lombok or annotation processors.** turbine doesn't run them, so anything generated by
+  `@Getter`, `@Data`, `@Builder` and friends doesn't exist for java-index, and calls to it won't
+  resolve.
+* **Generated sources need a build first.** Code in `target/generated-sources` (MapStruct,
+  protobuf, OpenAPI) gets indexed once it's there, but on a fresh clone it isn't.
+* **Resolution isn't perfect.** Some generic inference falls back to bounds, and reflection or
+  framework wiring is invisible. When it isn't sure, it returns nothing instead of guessing. See
+  [Limitations](#limitations).
+* **No compile errors.** It can't tell you the code doesn't compile. Your build or CI does that.
 
-If you write Java by hand, use jdtls or an IDE. If you mostly review what agents write, often in
-several worktrees at once, java-index gives you the same navigation answers for a fraction of
-the time and memory.
+So: if you write Java by hand, use jdtls or an IDE. If you mostly review what agents write,
+especially across several worktrees, java-index gets you the same navigation for a lot less time
+and memory.
 
 ## What you get
 
@@ -139,7 +121,7 @@ both ways with the Java that uses them (`@Value`, `@ConfigurationProperties`, `@
 `@ConfigMapping`, `getProperty("…")`). Jump from a key in Java to where it is set in every profile,
 or from a config file to the code that reads it. Hover shows the value per profile and, for library
 keys such as `server.port`, the documented type, default and description. Spring's relaxed binding
-is honoured.
+works too.
 
 ### For AI agents (MCP)
 
@@ -154,9 +136,9 @@ is honoured.
 
 Every tool takes an optional `worktree` path to query another worktree of the same repository.
 
-Grep is still the right tool for text search. java-index pays off for library APIs (no guessing
-signatures), common method names (`save`, `get`, `execute`) and type hierarchies. Its answers are
-strong evidence, not proof: reflection and framework wiring are invisible to it.
+Grep is still fine for plain text search. java-index helps most with library APIs (no more
+guessing signatures), common method names like `save`, `get` or `execute`, and type hierarchies.
+Treat its answers as strong hints, not proof, since it can't see reflection or framework wiring.
 
 ## Install
 
@@ -202,8 +184,8 @@ jindex mcp      # MCP over stdio, for agents        (--root DIR to override the 
 jindex --help   # usage; --version prints the version
 ```
 
-Run bare, `jindex` waits for an editor to speak LSP on stdin, so it looks like it hangs in a
-terminal; that is expected. Press Ctrl-D to leave.
+If you run plain `jindex` in a terminal it will look stuck. It's just waiting for an editor to
+talk to it. Press Ctrl-D to exit.
 
 **Claude Code** (run in your repository):
 
@@ -312,15 +294,15 @@ LSP initialization options:
 | `deprecations` | `true` | mark uses of deprecated APIs |
 
 `java -jar java-index.jar lsp --no-daemon` and `… mcp --no-daemon` serve in-process without a daemon (the jar only; the native relay always relays), which is
-useful for debugging.
+handy for debugging.
 
 ## Limitations
 
-Resolution is deliberately approximate. Generic methods are inferred from their arguments and
+Resolution is approximate on purpose. Generic methods are inferred from their arguments and
 lambda parameters from the expected functional interface, so `stream().map(...).filter(...)` and
 `forEach(item -> item.save())` resolve. Inference that needs the assignment target
-(`collect(Collectors.toList())`) falls back to the type variable's bound. When java-index is unsure
-it returns nothing rather than guessing. References are exact matches on the resolved declaration:
+(`collect(Collectors.toList())`) falls back to the type variable's bound. When java-index isn't sure,
+it returns nothing instead of guessing. References are exact matches on the resolved declaration:
 a call through a subclass that overrides a method counts for the override (the MCP `java_callers`
 tool reports both, in separate groups).
 
