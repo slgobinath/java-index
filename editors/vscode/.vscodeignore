@@ -1,0 +1,9 @@
+src/**
+node_modules/**
+tsconfig.json
+**/*.map
+**/*.ts
+.gitignore
+package-lock.json
+*.vsix
+images/*.svg
