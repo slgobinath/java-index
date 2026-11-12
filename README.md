@@ -248,6 +248,14 @@ install `editors/zed` with `zed: install dev extension`, then in `settings.json`
 The extension runs `jindex` from the PATH; to use the jar instead, add
 `"lsp": { "java-index": { "binary": { "path": "java", "arguments": ["-jar", "/path/to/java-index.jar"] } } }`.
 
+**VS Code**: [`editors/vscode`](editors/vscode) holds an extension that runs `jindex` from the
+PATH or, if it isn't there, downloads the matching release from GitHub (the native relay on Apple
+Silicon and Linux, the jar elsewhere; the daemon still needs Java 21+). Install
+`java-index-<version>.vsix` from the [releases](https://github.com/slgobinath/java-index/releases)
+with `code --install-extension java-index-<version>.vsix`. Disable the Red Hat Java extension in
+workspaces you review with java-index, or you get every answer twice. Settings are in
+[its README](editors/vscode/README.md).
+
 **Sublime LSP / Kate**: register a custom stdio server running `jindex` for Java files.
 
 ## How it works

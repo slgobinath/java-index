@@ -1,0 +1,136 @@
+{
+  "name": "java-index",
+  "displayName": "Java Index",
+  "description": "Fast, lightweight Java navigation built on Google's turbine header compiler: a fraction of the memory and CPU of a full Java language server, with one shared index across every worktree. Links Spring Boot and Quarkus config keys to the Java that reads them.",
+  "version": "0.1.2",
+  "publisher": "gobinath",
+  "icon": "images/icon.png",
+  "author": "Gobinath Loganathan <slgobinath@gmail.com>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/slgobinath/java-index",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "java",
+    "lsp",
+    "navigation",
+    "spring",
+    "spring boot",
+    "quarkus",
+    "worktree"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:java",
+    "workspaceContains:**/application*.{properties,yml,yaml}",
+    "workspaceContains:**/bootstrap*.yml",
+    "workspaceContains:**/microprofile-config.properties"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "javaIndex.restart",
+        "title": "Restart Server",
+        "category": "Java Index"
+      },
+      {
+        "command": "javaIndex.showOutput",
+        "title": "Show Output",
+        "category": "Java Index"
+      }
+    ],
+    "configuration": {
+      "title": "Java Index",
+      "properties": {
+        "javaIndex.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Command that runs the server, e.g. `/opt/homebrew/bin/jindex` or `java`. Empty: `jindex` from the `PATH`, else the release matching this extension, downloaded from GitHub."
+        },
+        "javaIndex.server.arguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine-overridable",
+          "markdownDescription": "Arguments for `#javaIndex.server.path#`, e.g. `[\"-jar\", \"/path/to/java-index.jar\"]`."
+        },
+        "javaIndex.java.home": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "JDK (21+) that runs the daemon. Empty: `$JINDEX_JAVA`, `$JAVA_HOME`, then `java` from the `PATH`."
+        },
+        "javaIndex.classpath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Jars or jar directories to use instead of asking Maven or Gradle for the classpath."
+        },
+        "javaIndex.inlayHints.parameterNames": {
+          "type": "string",
+          "enum": [
+            "literals",
+            "all",
+            "none"
+          ],
+          "default": "literals",
+          "scope": "resource",
+          "description": "Parameter name hints: for literal arguments only, for all arguments, or none."
+        },
+        "javaIndex.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Type hints for `var`, lambda parameters and member chains."
+        },
+        "javaIndex.deprecations": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Mark uses of deprecated APIs."
+        },
+        "javaIndex.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "scope": "window",
+          "description": "Log the LSP messages between VS Code and the server to the Java Index output."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "vscode:prepublish": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify",
+    "package": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\" && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "~1.82.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}
