@@ -2,7 +2,7 @@
   "name": "java-index",
   "displayName": "Java Index",
   "description": "Fast, lightweight Java navigation built on Google's turbine header compiler: a fraction of the memory and CPU of a full Java language server, with one shared index across every worktree. Links Spring Boot and Quarkus config keys to the Java that reads them.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "gobinath",
   "icon": "images/icon.png",
   "author": "Gobinath Loganathan <slgobinath@gmail.com>",
