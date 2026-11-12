@@ -57,7 +57,9 @@ public final class ClasspathProvider {
               def conf = project.configurations.findByName(name)
               if (conf != null && conf.canBeResolved) {
                 try {
-                  conf.resolvedConfiguration.lenientConfiguration.files.each {
+                  // An artifact view, not resolvedConfiguration.lenientConfiguration.files:
+                  // Gradle 9 removed LenientConfiguration.getFiles().
+                  conf.incoming.artifactView { lenient = true }.files.each {
                     println '%s' + it.absolutePath
                   }
                 } catch (Exception ignored) {}
