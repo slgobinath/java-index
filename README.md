@@ -52,18 +52,18 @@ not a replacement for jdtls or your IDE. If you write Java by hand, keep using t
 
 jdtls is a full language server for writing Java. java-index only covers reading it.
 
-| | java-index | jdtls |
-| --- | :---: | :---: |
-| Definition, references, hover, implementations, type and call hierarchy, symbols | ✓ | ✓ |
-| Compiler errors and warnings | — | ✓ |
-| Completion | — | ✓ |
-| Refactoring, quick fixes (beyond imports), formatting | — | ✓ |
-| Debugging, running tests | — | ✓ (with extensions) |
-| Lombok and other annotation processors | — | ✓ |
-| Spring Boot / Quarkus config keys linked to Java | ✓ | — (separate Spring Tools) |
-| Tools for agents (MCP) | ✓ | — |
-| One shared process for every worktree of a repository | ✓ | — (one per window) |
-| Writes into your project (`target/`) | never | yes, builds alongside yours |
+| | java-index | jdtls | jdtls light |
+| --- | :---: | :---: | :---: |
+| Definition, references, hover, implementations, type and call hierarchy, symbols | ✓ | ✓ | partial (definition, hover and symbols in project sources; no references, implementations or hierarchies) |
+| Compiler errors and warnings | — | ✓ | syntax errors only |
+| Completion | — | ✓ | partial (no classpath) |
+| Refactoring, quick fixes (beyond imports), formatting | — | ✓ | formatting only |
+| Debugging, running tests | — | ✓ (with extensions) | — |
+| Lombok and other annotation processors | — | ✓ | — |
+| Spring Boot / Quarkus config keys linked to Java | ✓ | — (separate Spring Tools) | — |
+| Tools for agents (MCP) | ✓ | — | — |
+| One shared process for every worktree of a repository | ✓ | — (one per window) | — (one per window) |
+| Writes into your project (`target/`) | never | yes, builds alongside yours | never |
 
 Numbers from the [benchmark](benchmark/README.md) on spring-petclinic, a small Spring Boot app
 (Apple M5 Pro, jdtls 1.63.0 with VS Code's default settings, java-index with the native relay;
@@ -83,12 +83,29 @@ medians). jdtls light is the same jdtls in VS Code's lightweight mode
 | Correct answers (17 queries per window) | 17 / 17 | 17 / 17 | 5 / 17 |
 | References and implementations, location by location | same as jdtls | (baseline) | not supported |
 
-Lightweight mode makes jdtls almost as cheap to start as java-index, but without the build it has
-no classpath: it can't do references, implementations, type or call hierarchy, signature help or
-workspace symbols, and definitions and hover on library code come back empty.
+On [jackson-databind](https://github.com/FasterXML/jackson-databind) 2.23.0, a larger library
+(1,300 Java files, 260k lines, about 50 times petclinic), with the same kinds of query:
 
-To be fair about these numbers: it's one small Maven project and 17 queries we picked ourselves. We
-haven't benchmarked large codebases, Gradle or multi-module builds yet. jdtls is also doing a lot
+| | java-index | jdtls | jdtls light |
+| --- | ---: | ---: | ---: |
+| Ready to answer, cold / warm start | 1.7 s / 0.9 s | 3.1 s / 2.2 s | 2.3 s / 2.0 s |
+| Memory, one window | 328 MB | 1.8 GB | 619 MB |
+| CPU time to open one window, cold | 23 s | 91 s | 56 s |
+| Query latency (queries it answers) | 0.6–201 ms | 3.8–505 ms | 8.9–383 ms |
+| Find references on a common method (383 callers) | 27 ms | 161 ms | not supported |
+| Correct answers (17 queries) | 17 / 17 | 17 / 17 | 4 / 17 |
+| References and implementations, location by location | same as jdtls | (baseline) | not supported |
+
+Lightweight mode makes jdtls almost as cheap to start as java-index on a small project, but without
+the build it has no classpath, and it takes none: `java.project.referencedLibraries` is ignored in
+that mode. It can't do references, implementations, type or call hierarchy, signature help or
+workspace symbols, and anything that depends on a library type (definitions and hover into
+libraries, and on jackson-databind even picking the right overload of a project method) comes back
+empty or wrong.
+
+To be fair about these numbers: it's two single-module Maven projects and 17 queries per project
+that we picked ourselves. We haven't benchmarked very large codebases, Gradle or multi-module
+builds yet. jdtls is also doing a lot
 more work, since it compiles the project. Where jdtls compiles, java-index has to approximate,
 which means:
 

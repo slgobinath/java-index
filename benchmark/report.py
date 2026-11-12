@@ -19,6 +19,7 @@
 """
 
 import glob
+import importlib
 import json
 import os
 import statistics
@@ -54,10 +55,13 @@ def main(dirs):
     out = dirs[0]
     runs = load(dirs)
     env = json.load(open(os.path.join(out, "environment.json")))
+    global C
+    project = env.get("project", "spring-petclinic")
+    C = importlib.import_module({"spring-petclinic": "cases", "jackson-databind": "cases_jackson"}[project])
     env["results"] = ", ".join(os.path.basename(os.path.normpath(d)) for d in dirs)
     servers = [s for s in ("java-index", "java-index-native", "jdtls", "jdtls-light", "java-language-server") if s in runs] + \
               [s for s in runs if s not in ("java-index", "java-index-native", "jdtls", "jdtls-light", "java-language-server")]
-    lines = ["# LSP benchmark: spring-petclinic", ""]
+    lines = ["# LSP benchmark: %s" % project, ""]
     lines += ["| | |", "| --- | --- |"]
     lines += ["| %s | %s |" % (k, v) for k, v in env.items()]
     lines += ["", "Medians across runs. Memory is the summed resident set of every process the server",

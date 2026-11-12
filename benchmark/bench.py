@@ -21,6 +21,7 @@ correctness and resource usage. Run ./setup.sh first. Standard library only.
 """
 
 import argparse
+import importlib
 import datetime
 import glob
 import json
@@ -39,7 +40,12 @@ from lsp import LspClient, LspError, Sampler, kill_tree, processes
 BENCH = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(BENCH, ".work")
 PETCLINIC = os.path.join(WORK, "repos", "spring-petclinic")
-REPO = PETCLINIC  # --spaces switches to a copy indented with spaces
+REPO = PETCLINIC  # --project picks another repository, --spaces a copy indented with spaces
+# --project: the repository under .work/repos and the module with its queries.
+PROJECTS = {
+    "spring-petclinic": "cases",
+    "jackson-databind": "cases_jackson",
+}
 SERVERS_DIR = os.path.join(WORK, "servers")
 JAVA_INDEX_JAR = os.path.join(BENCH, "..", "target", "java-index.jar")
 JAVA_INDEX_RELAY = os.path.join(BENCH, "..", "target", "jindex-relay")
@@ -80,6 +86,10 @@ def jdtls_spec(jdtls, light):
         ],
         "env": lambda state: {"syntaxserver": "true"} if light else {},
         "extra_processes": None,
+        # Without the build, light mode can resolve the probe to a wrong overload, and its answers
+        # never improve: it is ready once the probe returns any location in project code. The
+        # probe's correctness is still judged with the other queries.
+        "ready_on_answer": light,
         "init_options": {
             "settings": JDTLS_SETTINGS,
             "extendedClientCapabilities": {"classFileContentsSupport": True},
@@ -324,7 +334,7 @@ def run_server(name, spec, mode, state, reps, ready_timeout, log_path):
             "processId": os.getpid(),
             "rootUri": "file://" + REPO,
             "rootPath": REPO,
-            "workspaceFolders": [{"uri": "file://" + REPO, "name": "spring-petclinic"}],
+            "workspaceFolders": [{"uri": "file://" + REPO, "name": os.path.basename(REPO)}],
             "capabilities": CLIENT_CAPABILITIES,
             "initializationOptions": spec["init_options"],
         }, timeout=ready_timeout)
@@ -343,7 +353,9 @@ def run_server(name, spec, mode, state, reps, ready_timeout, log_path):
         probe = next(c for c in C.CASES if c["name"] == C.PROBE)
         while True:
             _ms, answer, err = timed(client, probe)
-            if answer is not None and check(probe["expect"], summarize(probe["method"], answer)):
+            summary = summarize(probe["method"], answer) if answer is not None else None
+            if summary and (check(probe["expect"], summary) or
+                            spec.get("ready_on_answer") and any(l.get("project") for l in summary["locations"])):
                 break
             if client.closed or time.monotonic() - t0 > ready_timeout:
                 result["last_probe"] = {"answer": answer, "error": err}
@@ -411,6 +423,7 @@ def environment():
         "java21": version([java("JAVA21_HOME"), "-version"]),
         "java25": version([java("JAVA25_HOME"), "-version"]),
         "spring-petclinic": git(PETCLINIC),
+        "jackson-databind": git(os.path.join(WORK, "repos", "jackson-databind")),
         "java-index": git(os.path.join(BENCH, "..")),
         "jdtls": os.path.basename(glob.glob(os.path.join(SERVERS_DIR, "jdt-language-server-*.tar.gz"))[0])
                  if glob.glob(os.path.join(SERVERS_DIR, "jdt-language-server-*.tar.gz")) else None,
@@ -436,7 +449,7 @@ def spaces_copy():
 
 
 def main():
-    global REPO
+    global REPO, C
     specs = server_specs()
     parser = argparse.ArgumentParser()
     parser.add_argument("--servers", default=",".join(specs))
@@ -445,16 +458,24 @@ def main():
     parser.add_argument("--ready-timeout", type=int, default=600)
     parser.add_argument("--spaces", action="store_true",
                         help="run on a copy of petclinic indented with spaces instead of tabs")
+    parser.add_argument("--project", default="spring-petclinic", choices=sorted(PROJECTS))
     args = parser.parse_args()
     variant = "spaces" if args.spaces else "tabs"
-    if args.spaces:
+    if args.project != "spring-petclinic":
+        if args.spaces:
+            raise SystemExit("--spaces only applies to spring-petclinic")
+        REPO = os.path.join(WORK, "repos", args.project)
+        C = importlib.import_module(PROJECTS[args.project])
+        variant = args.project
+    elif args.spaces:
         REPO = spaces_copy()
 
     java("JAVA21_HOME"), java("JAVA25_HOME")
     out = os.path.join(BENCH, "results", datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + variant)
     os.makedirs(out)
     with open(os.path.join(out, "environment.json"), "w") as f:
-        json.dump(dict(environment(), indentation=variant), f, indent=2)
+        json.dump(dict(environment(), project=args.project,
+                       indentation=("spaces" if args.spaces else "tabs") if args.project == "spring-petclinic" else "as committed"), f, indent=2)
     for name in args.servers.split(","):
         state = os.path.join(WORK, "state", variant, name)
         # One cold run first, then warm runs on its caches, repeated: cold, warm, cold, warm ...

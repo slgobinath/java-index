@@ -28,6 +28,7 @@ JDTLS_VERSION=1.63.0
 JDTLS_TARBALL=jdt-language-server-1.63.0-202610191322.tar.gz
 JLS_COMMIT=58daaa29a0e2fe22764283607da6801cf8b493b9
 PETCLINIC_COMMIT=500158f732419217507c7656904b8e6aa1bcc0d6
+JACKSON_COMMIT=4d6a0a23a8640e37bcbf37bc351dbe8cb16d7003  # jackson-databind-2.23.0
 
 mkdir -p "$WORK/servers" "$WORK/repos"
 
@@ -63,5 +64,12 @@ fi
 git -C "$WORK/repos/spring-petclinic" checkout -q "$PETCLINIC_COMMIT"
 # Download its dependencies now so no server's startup time includes network downloads.
 (cd "$WORK/repos/spring-petclinic" && JAVA_HOME=$JAVA21_HOME ./mvnw -q dependency:go-offline dependency:sources)
+
+echo "== jackson-databind ${JACKSON_COMMIT:0:8} (for bench.py --project jackson-databind)"
+if [ ! -d "$WORK/repos/jackson-databind" ]; then
+  git clone -q https://github.com/FasterXML/jackson-databind.git "$WORK/repos/jackson-databind"
+fi
+git -C "$WORK/repos/jackson-databind" checkout -q "$JACKSON_COMMIT"
+(cd "$WORK/repos/jackson-databind" && JAVA_HOME=$JAVA21_HOME ./mvnw -q dependency:go-offline dependency:sources)
 
 echo "ready: python3 bench.py"

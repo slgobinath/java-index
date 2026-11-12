@@ -31,12 +31,13 @@ export JAVA21_HOME=/path/to/jdk-21 JAVA25_HOME=/path/to/jdk-25 GRAALVM_HOME=/pat
 ./setup.sh
 
 python3 bench.py --servers java-index,java-index-native,jdtls,jdtls-light
+python3 bench.py --project jackson-databind --servers java-index,java-index-native,jdtls,jdtls-light
 python3 worktrees.py --servers java-index,java-index-native,jdtls,jdtls-light
 ```
 
 `setup.sh` builds java-index (and its native relay when `GRAALVM_HOME` is set), downloads jdtls
-1.63.0, builds java-language-server and clones spring-petclinic, all at pinned versions, into
-`.work/`. It also downloads petclinic's dependencies, so no measured startup includes network
+1.63.0, builds java-language-server and clones spring-petclinic and jackson-databind, all at
+pinned versions, into `.work/`. It also downloads both projects' dependencies, so no measured startup includes network
 downloads. Each script writes `results/<timestamp>/` with one JSON file and one server log per
 run, and a `report.md` with the tables. `python3 report.py DIR...` rebuilds a report and can
 merge several results directories.
@@ -50,6 +51,9 @@ merge several results directories.
   which expand tabs to 8, so in tab-indented files it resolves the wrong token and never becomes
   ready.
 * `--servers java-language-server --spaces` adds the third server.
+* `--project jackson-databind` runs on [jackson-databind](https://github.com/FasterXML/jackson-databind)
+  2.23.0 (1,300 Java files, 260k lines) instead of petclinic, with its own queries in
+  [`cases_jackson.py`](cases_jackson.py).
 
 ### `worktrees.py`: parallel worktrees
 
@@ -67,11 +71,14 @@ check fails for it without meaning a leak.)
 ## What is measured
 
 A small LSP client (`lsp.py`) starts each server on the repository and sends the same queries,
-defined in [`cases.py`](cases.py) before any server was run.
+defined in [`cases.py`](cases.py) and [`cases_jackson.py`](cases_jackson.py) before any server was run.
 
 * **Ready**: time from launch until a go-to-definition into project code returns the right
   answer. Servers report readiness differently, so this is measured the same way for all.
   *Cold* starts with empty caches; *warm* restarts on the caches the previous run left.
+  jdtls-light is the exception: without the build it can resolve the probe to the wrong overload
+  and never improve, so it is ready once the probe returns any location in project code (the
+  probe's answer is still judged with the other queries).
 * **Query latency**: each query once, then repeated; the report shows the median.
 * **Correctness**: each answer is checked against a hand-written expectation. These checks are
   loose (for example "at least 3 references"), so references, implementations and highlights are
