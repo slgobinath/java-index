@@ -188,6 +188,28 @@ class ResolverTest {
   }
 
   @Test
+  void picksOverloadForStringConcatenationArgument() {
+    file(
+        "src/a/Mapper.java",
+        """
+        package a;
+        public class Mapper {
+          public <T> T read(java.io.Reader src, Class<T> type) { return null; }
+          public <T> T read(String content, Class<T> type) { return null; }
+          void use(int value, StringBuilder sb) {
+            read("{\\"v\\":" + value + "}", Mapper.class);
+            read(value + 1 + "x", Mapper.class);
+            read("" + sb.length(), Mapper.class);
+          }
+        }
+        """);
+    for (int nth = 1; nth <= 3; nth++) {
+      assertSource(
+          resolve("src/a/Mapper.java", "read(", nth + 2), "src/a/Mapper.java", "read", 2);
+    }
+  }
+
+  @Test
   void toleratesBrokenBuffers() {
     file(
         "src/a/Ok.java",

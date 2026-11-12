@@ -1898,6 +1898,9 @@ public final class Resolver {
         return value(TypeSyntax.resolve(cast, u, ctx.scope()));
       }
     }
+    if (isStringConcatenation(from, to)) {
+      return value(TypeRef.STRING);
+    }
     int[] start = new int[1];
     List<Seg> segs = chainBackward(to, start);
     if (segs == null || segs.isEmpty() || start[0] != from) {
@@ -1907,6 +1910,36 @@ public final class Resolver {
       return null;
     }
     return fold(ctx, segs);
+  }
+
+  /**
+   * True for {@code a + b + ...} where some operand is a string literal, so the whole is a String.
+   * Only '+' may appear between top-level operands; anything binding looser (comparisons, '?:',
+   * assignments, lambdas) or ambiguous ('<' and '>' could be generics) leaves the type unknown.
+   */
+  private boolean isStringConcatenation(int from, int to) {
+    boolean plus = false;
+    boolean literal = false;
+    for (int j = from; j <= to; j++) {
+      switch (t.kind(j)) {
+        case LPAREN, LBRACK, LBRACE -> {
+          int close = t.match(j);
+          if (close < j || close > to) {
+            return false;
+          }
+          j = close;
+        }
+        case PLUS -> plus = true;
+        case STRING_LITERAL -> literal |= !t.is(j + 1, Token.DOT);
+        case ASSIGN, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ, ANDEQ, OREQ, XOREQ, LTLTE, GTGTE, GTGTGTE,
+            COND, COLON, ARROW, EQ, NOTEQ, LT, GT, LTE, GTE, LTLT, GTGT, GTGTGT, AND, OR, XOR,
+            ANDAND, OROR, INSTANCEOF, COMMA, SEMI -> {
+          return false;
+        }
+        default -> {}
+      }
+    }
+    return plus && literal;
   }
 
   private TypeRef localType(Context ctx, Local l) {
