@@ -23,6 +23,7 @@ https://github.com/user-attachments/assets/9984c749-106f-4f31-ac43-a0c9f10f1f90
 - [Classpath](#classpath)
 - [Configuration](#configuration)
 - [Limitations](#limitations)
+- [Reporting problems](#reporting-problems)
 - [License](#license)
 
 ## Purpose
@@ -383,6 +384,21 @@ lambda parameters from the expected functional interface, so `stream().map(...).
 it returns nothing instead of guessing. References are exact matches on the resolved declaration:
 a call through a subclass that overrides a method counts for the override (the MCP `java_callers`
 tool reports both, in separate groups).
+
+## Reporting problems
+
+Missing and wrong answers are the most useful reports: most of the resolver's fixes so far came
+from real code it got wrong. Please [open an issue](https://github.com/slgobinath/java-index/issues)
+with:
+
+* the query (go to definition, references, …) and the line of code it was made on, or a small
+  snippet that reproduces it;
+* what you expected and what you got (nothing, or the wrong place);
+* `jindex --version`, the build tool, and whether the project uses Lombok or other annotation
+  processors (those aren't supported);
+* the daemon log, `~/.cache/java-index/<key>.log` (under `JINDEX_HOME` if set). The log of the
+  repository you were in is the one that mentions its path:
+  `grep -l "indexed /path/to/repo" ~/.cache/java-index/*.log`.
 
 ## License
 
