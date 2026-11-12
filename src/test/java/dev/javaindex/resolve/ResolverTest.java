@@ -17,6 +17,7 @@
 package dev.javaindex.resolve;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.javaindex.classpath.Dependencies;
@@ -207,6 +208,143 @@ class ResolverTest {
       assertSource(
           resolve("src/a/Mapper.java", "read(", nth + 2), "src/a/Mapper.java", "read", 2);
     }
+  }
+
+  @Test
+  void picksOverloadForMapForEachLambdaParameters() {
+    file(
+        "src/a/Names.java",
+        """
+        package a;
+        import java.util.Map;
+        public class Names {
+          static String qualify(String prefix, String name) { return null; }
+          static String[] qualify(String prefix, String[] names) { return null; }
+          void use(Map<String, String[]> byAlias) {
+            byAlias.forEach((alias, columns) -> {
+              for (String c : qualify(alias, columns)) {}
+            });
+          }
+        }
+        """);
+    assertSource(resolve("src/a/Names.java", "qualify(alias"), "src/a/Names.java", "qualify", 2);
+  }
+
+  @Test
+  void typesConditionalWithNullBranch() {
+    file(
+        "src/a/Cascades.java",
+        """
+        package a;
+        public class Cascades {
+          static boolean isEmpty(String s) { return true; }
+          static boolean isEmpty(Object[] array) { return true; }
+          static String[] values() { return null; }
+          void use(boolean none) {
+            final var picked = none ? null : values();
+            isEmpty(picked);
+          }
+        }
+        """);
+    assertSource(
+        resolve("src/a/Cascades.java", "isEmpty(picked"), "src/a/Cascades.java", "isEmpty", 2);
+  }
+
+  @Test
+  void leavesOverloadUnresolvedWhenArgumentTypeIsUnknown() {
+    file(
+        "src/a/Pick.java",
+        """
+        package a;
+        public class Pick {
+          static void take(String s) {}
+          static void take(Integer i) {}
+          void use() {
+            take(Missing.value());
+          }
+        }
+        """);
+    assertNull(resolve("src/a/Pick.java", "take(Missing"));
+  }
+
+  @Test
+  void picksOverloadByShapeOfFunctionalArgument() {
+    file(
+        "src/a/Group.java",
+        """
+        package a;
+        import java.util.function.Function;
+        public class Group<T> {
+          public interface Action<T, U, X> { void accept(T listener, U event, X param); }
+          public interface Listener { void onLoad(String event, Integer type); }
+          public <R, U, X> R fire(U event, X param, Function<T, R> fun) { return null; }
+          public <U, X> void fire(U event, X param, Action<T, U, X> action) {}
+          void use(Group<Listener> group) {
+            group.fire("e", 1, Listener::onLoad);
+            group.fire("e", 1, (l, e, p) -> {});
+            group.fire("e", 1, l -> null);
+          }
+        }
+        """);
+    assertSource(resolve("src/a/Group.java", "fire(\"e\"", 1), "src/a/Group.java", "fire", 2);
+    assertSource(resolve("src/a/Group.java", "fire(\"e\"", 2), "src/a/Group.java", "fire", 2);
+    assertSource(resolve("src/a/Group.java", "fire(\"e\"", 3), "src/a/Group.java", "fire", 1);
+  }
+
+  @Test
+  void picksOverloadForArithmeticArgument() {
+    file(
+        "src/a/Money.java",
+        """
+        package a;
+        public class Money {
+          static Money valueOf(double d) { return null; }
+          static Money valueOf(long l) { return null; }
+          int hours() { return 1; }
+          void use(Money a, Money b, double rate) {
+            valueOf(a.hours() + b.hours() * 2);
+            valueOf(-a.hours() + rate);
+          }
+        }
+        """);
+    assertSource(resolve("src/a/Money.java", "valueOf(a.hours"), "src/a/Money.java", "valueOf", 2);
+    assertSource(resolve("src/a/Money.java", "valueOf(-a"), "src/a/Money.java", "valueOf", 1);
+  }
+
+  @Test
+  void staticImportOfOverloadedMethodIsNoReference() {
+    file(
+        "src/a/Strings.java",
+        """
+        package a;
+        public class Strings {
+          public static String qualify(String p, String n) { return n; }
+          public static String[] qualify(String p, String[] n) { return n; }
+          public static boolean isEmpty(String s) { return true; }
+        }
+        """);
+    file(
+        "src/b/Use.java",
+        """
+        package b;
+        import static a.Strings.isEmpty;
+        import static a.Strings.qualify;
+        class Use {
+          void m() { qualify("a", "b"); isEmpty("c"); }
+        }
+        """);
+    Map<String, FileSummary> summaries = new HashMap<>();
+    sources.forEach(
+        (r, text) -> summaries.put(r, Summarizer.summarize(Summarizer.hash(text), r, text)));
+    Universe u =
+        new Universe(
+            new WorktreeIndex(Snapshot.of(summaries)), ROOT, Dependencies.EMPTY, Dependencies.jdk());
+    String text = sources.get("src/b/Use.java");
+    Resolver r = new Resolver(u, text, summaries.get("src/b/Use.java"), ROOT.resolve("src/b/Use.java"));
+    // The overloaded name's import line is left out; the call still counts.
+    assertEquals(List.of(text.indexOf("qualify(")), r.occurrences("qualify").stream().map(Resolver.Occurrence::start).toList());
+    // A single method's import is a reference, as jdtls reports it.
+    assertEquals(2, r.occurrences("isEmpty").stream().filter(o -> !o.targets().isEmpty()).count());
   }
 
   @Test

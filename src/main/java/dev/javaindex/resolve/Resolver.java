@@ -93,6 +93,12 @@ public final class Resolver {
       if (s != null && s.kind() == Symbol.Kind.PACKAGE) {
         continue; // a package name segment: neither a reference nor an unresolved use
       }
+      if (s != null
+          && s.kind() == Symbol.Kind.METHOD
+          && s.overloads().size() > 1
+          && t.is(statementStart(i), Token.IMPORT)) {
+        continue; // `import static a.B.m;` names every overload of m, so none in particular
+      }
       List<Target> targets =
           s == null || s.target() == null
               ? List.of() // unresolved: may still be a reference the resolver couldn't follow
@@ -433,6 +439,84 @@ public final class Resolver {
     } finally {
       active = saved;
     }
+  }
+
+  /**
+   * The type of {@code a + b * c ...} over numeric operands, by binary numeric promotion (double,
+   * float, long, else int). Null unless the operands are joined only by + - * / % at the top level
+   * and all of them have a known numeric type; string concatenation is typed elsewhere.
+   */
+  private TypeRef arithmeticType(int from, int to) {
+    List<int[]> operands = new ArrayList<>();
+    int start = from;
+    for (int j = from; j <= to; j++) {
+      switch (t.kind(j)) {
+        case LPAREN, LBRACK, LBRACE -> {
+          int close = t.match(j);
+          if (close < j || close > to) {
+            return null;
+          }
+          j = close;
+        }
+        case PLUS, MINUS, MULT, DIV, MOD -> {
+          if (j == start) {
+            start = j + 1; // unary sign
+          } else {
+            operands.add(new int[] {start, j - 1});
+            start = j + 1;
+          }
+        }
+        case STRING_LITERAL, ASSIGN, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ, ANDEQ, OREQ, XOREQ, LTLTE,
+            GTGTE, GTGTGTE, COND, COLON, ARROW, EQ, NOTEQ, LT, GT, LTE, GTE, LTLT, GTGT, GTGTGT, AND,
+            OR, XOR, ANDAND, OROR, INSTANCEOF, COMMA, SEMI, NOT, TILDE, INCR, DECR -> {
+          return null;
+        }
+        default -> {}
+      }
+    }
+    if (operands.isEmpty() || start > to) {
+      return null;
+    }
+    operands.add(new int[] {start, to});
+    int rank = 0;
+    for (int[] o : operands) {
+      TypeRef type = argType(o[0], o[1]);
+      int r = numericRank(type);
+      if (r < 0) {
+        return null;
+      }
+      rank = Math.max(rank, r);
+    }
+    return TypeRef.ofPrim(new String[] {"int", "long", "float", "double"}[rank]);
+  }
+
+  /** 0 int (and narrower), 1 long, 2 float, 3 double, boxed or not; -1 when not numeric. */
+  private static int numericRank(TypeRef type) {
+    if (type == null || type.dims() > 0) {
+      return -1;
+    }
+    String p = type.prim();
+    if (p == null && type.isClass()) {
+      p = switch (type.cls()) {
+        case "java/lang/Integer" -> "int";
+        case "java/lang/Long" -> "long";
+        case "java/lang/Float" -> "float";
+        case "java/lang/Double" -> "double";
+        case "java/lang/Short" -> "short";
+        case "java/lang/Byte" -> "byte";
+        case "java/lang/Character" -> "char";
+        default -> null;
+      };
+    }
+    return p == null
+        ? -1
+        : switch (p) {
+          case "int", "short", "byte", "char" -> 0;
+          case "long" -> 1;
+          case "float" -> 2;
+          case "double" -> 3;
+          default -> -1;
+        };
   }
 
   private boolean isLiteral(int from, int to) {
@@ -1222,15 +1306,19 @@ public final class Resolver {
     if (fitting.size() <= 1 || open < 0) {
       return Universe.pick(hits, argc);
     }
+    List<int[]> ranges = arguments(open);
     List<TypeRef> args = new ArrayList<>();
-    for (int[] a : arguments(open)) {
-      args.add(argType(a[0], a[1]));
+    for (int[] a : ranges) {
+      // A lambda or method reference has no type of its own; its shape is scored per overload.
+      args.add(isLambda(a) || isMethodRef(a) ? null : argType(a[0], a[1]));
     }
     Universe.Hit best = null;
     int bestScore = Integer.MIN_VALUE;
+    boolean tied = false;
+    boolean unknown = false;
     for (Universe.Hit h : fitting) {
       List<Member.Param> params = h.params();
-      int score = h.member().arity() == argc ? 1 : 0;
+      int score = h.member().arity() == argc ? 10 : 0;
       for (int k = 0; k < args.size() && !params.isEmpty(); k++) {
         TypeRef param = params.get(Math.min(k, params.size() - 1)).type();
         boolean spread =
@@ -1240,14 +1328,104 @@ public final class Resolver {
         if (spread && param != null) {
           param = param.component();
         }
-        score += score(args.get(k), param);
+        int[] range = k < ranges.size() ? ranges.get(k) : null;
+        if (range != null && (isLambda(range) || isMethodRef(range))) {
+          Integer fits = functionalScore(range, param);
+          unknown |= fits == null;
+          score += fits == null ? 0 : fits;
+        } else {
+          unknown |= args.get(k) == null;
+          score += score(args.get(k), param);
+        }
       }
       if (score > bestScore) {
         bestScore = score;
         best = h;
+        tied = false;
+      } else if (score == bestScore) {
+        tied = true;
       }
     }
-    return best;
+    // Overloads that only an unknown argument could tell apart: answering with the first would
+    // be a guess (and file the call's references under the wrong overload), so answer nothing.
+    return tied && unknown ? null : best;
+  }
+
+  /**
+   * How well a lambda or method reference fits a parameter, by shape: its parameter count against
+   * the functional interface's method. Null when that can't be told.
+   */
+  private Integer functionalScore(int[] a, TypeRef param) {
+    if (param == null || !param.isClass()) {
+      return null;
+    }
+    Universe.Hit sam = sam(param);
+    if (sam == null) {
+      // A class, or an interface with no single abstract method, can't take a lambda.
+      return u.find(param.cls()) == null ? null : -100;
+    }
+    int want = sam.params().size();
+    if (isLambda(a)) {
+      return lambdaArity(a) == want ? 20 : -100;
+    }
+    Set<Integer> arities = methodRefArities(a);
+    return arities == null ? null : arities.contains(want) ? 20 : -100;
+  }
+
+  private int lambdaArity(int[] a) {
+    if (t.is(a[0], Token.IDENT)) {
+      return 1;
+    }
+    int close = t.match(a[0]);
+    if (close == a[0] + 1) {
+      return 0;
+    }
+    int n = 1;
+    for (int j = a[0] + 1; j < close; j++) {
+      if (t.is(j, Token.LPAREN) || t.is(j, Token.LBRACK)) {
+        j = Math.max(j, t.match(j));
+      } else if (t.is(j, Token.LT)) {
+        return -1; // generic parameter types: not worth parsing here
+      } else if (t.is(j, Token.COMMA)) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /**
+   * The parameter counts {@code Q::m} can take: m's arity, plus one for an instance method named
+   * through its type (the receiver comes first). Null when Q or m can't be resolved.
+   */
+  private Set<Integer> methodRefArities(int[] a) {
+    int name = a[1];
+    if (!t.is(name, Token.IDENT) || active == null || a[1] - 2 < a[0]) {
+      return null;
+    }
+    State q;
+    try {
+      q = evalRange(active, a[0], a[1] - 2);
+    } catch (RuntimeException e) {
+      return null;
+    }
+    boolean viaType = q instanceof Static;
+    TypeRef owner =
+        q instanceof Static st ? TypeRef.ofClass(st.binaryName(), List.of()) : q instanceof Value v ? v.type : null;
+    if (owner == null) {
+      return null;
+    }
+    List<Universe.Hit> methods = u.findMethods(owner, t.text(name));
+    if (methods.isEmpty()) {
+      return null;
+    }
+    Set<Integer> out = new HashSet<>();
+    for (Universe.Hit m : methods) {
+      if (m.member().varargs()) {
+        return null;
+      }
+      out.add(m.member().arity() + (viaType && !m.member().isStatic() ? 1 : 0));
+    }
+    return out;
   }
 
   private TypeRef argType(int from, int to) {
@@ -1276,6 +1454,10 @@ public final class Resolver {
     }
     if (active == null) {
       return null;
+    }
+    TypeRef arithmetic = arithmeticType(from, to);
+    if (arithmetic != null) {
+      return arithmetic;
     }
     try {
       State s = evalRange(active, from, to);
@@ -1328,35 +1510,41 @@ public final class Resolver {
       return 0;
     }
     if (param.tvar() != null) {
-      return 1;
+      return 10;
     }
     boolean argPrim = arg.prim() != null && arg.dims() == 0;
     boolean paramPrim = param.prim() != null && param.dims() == 0;
     if (argPrim && paramPrim) {
-      return arg.prim().equals(param.prim()) ? 4 : widens(arg.prim(), param.prim()) ? 3 : -10;
+      if (arg.prim().equals(param.prim())) {
+        return 40;
+      }
+      // The nearest widening wins, as in Java: int goes to long before float or double.
+      return widens(arg.prim(), param.prim())
+          ? 30 - (NUMERIC.indexOf(param.prim()) - NUMERIC.indexOf(arg.prim()))
+          : -100;
     }
     if (argPrim) {
       if (param.isClass() && param.cls().equals(boxed(arg.prim()))) {
-        return 2;
+        return 20;
       }
       return param.isClass()
               && (param.cls().equals("java/lang/Object") || param.cls().equals("java/lang/Number"))
-          ? 1
-          : -10;
+          ? 10
+          : -100;
     }
     if (paramPrim) {
-      return arg.isClass() && arg.cls().equals(boxed(param.prim())) ? 2 : -10;
+      return arg.isClass() && arg.cls().equals(boxed(param.prim())) ? 20 : -100;
     }
     if (param.isClass() && param.cls().equals("java/lang/Object")) {
-      return 1;
+      return 10;
     }
     if (arg.dims() != param.dims() || arg.cls() == null || param.cls() == null) {
-      return -10;
+      return -100;
     }
     if (arg.cls().equals(param.cls())) {
-      return 4;
+      return 40;
     }
-    return u.asSuper(TypeRef.ofClass(arg.cls(), List.of()), param.cls()) != null ? 3 : -10;
+    return u.asSuper(TypeRef.ofClass(arg.cls(), List.of()), param.cls()) != null ? 30 : -100;
   }
 
   /** Drops supertype methods overridden by a nearer one with the same parameter types. */
@@ -1901,6 +2089,10 @@ public final class Resolver {
     if (isStringConcatenation(from, to)) {
       return value(TypeRef.STRING);
     }
+    int[] conditional = conditional(from, to);
+    if (conditional != null) {
+      return conditionalValue(ctx, conditional[0], conditional[1], to);
+    }
     int[] start = new int[1];
     List<Seg> segs = chainBackward(to, start);
     if (segs == null || segs.isEmpty() || start[0] != from) {
@@ -1940,6 +2132,62 @@ public final class Resolver {
       }
     }
     return plus && literal;
+  }
+
+  /**
+   * The '?' and ':' of a top-level {@code cond ? a : b} in [from, to], or null. A '?' next to '<',
+   * ',' or '>' is a wildcard type argument, not the operator.
+   */
+  private int[] conditional(int from, int to) {
+    int question = -1;
+    int depth = 0;
+    for (int j = from; j <= to; j++) {
+      switch (t.kind(j)) {
+        case LPAREN, LBRACK, LBRACE -> {
+          int close = t.match(j);
+          if (close < j || close > to) {
+            return null;
+          }
+          j = close;
+        }
+        case ASSIGN, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ, ANDEQ, OREQ, XOREQ, LTLTE, GTGTE, GTGTGTE,
+            ARROW, COMMA, SEMI -> {
+          return null;
+        }
+        case COND -> {
+          if (t.is(j - 1, Token.LT) || t.is(j - 1, Token.COMMA) || t.is(j + 1, Token.GT)
+              || t.is(j + 1, Token.COMMA) || t.is(j + 1, Token.EXTENDS) || t.is(j + 1, Token.SUPER)) {
+            continue;
+          }
+          if (question < 0) {
+            question = j;
+          }
+          depth++;
+        }
+        case COLON -> {
+          if (question >= 0 && --depth == 0) {
+            return new int[] {question, j};
+          }
+        }
+        default -> {}
+      }
+    }
+    return null;
+  }
+
+  /** {@code cond ? a : b}: the type of a branch that isn't {@code null}, when the two agree. */
+  private State conditionalValue(Context ctx, int question, int colon, int to) {
+    boolean thenNull = question + 1 == colon - 1 && t.is(question + 1, Token.NULL);
+    boolean elseNull = colon + 1 == to && t.is(to, Token.NULL);
+    State then = thenNull ? null : evalRange(ctx, question + 1, colon - 1);
+    State otherwise = elseNull ? null : evalRange(ctx, colon + 1, to);
+    if (thenNull) {
+      return otherwise instanceof Value ? otherwise : null;
+    }
+    if (elseNull) {
+      return then instanceof Value ? then : null;
+    }
+    return then instanceof Value a && otherwise instanceof Value b && a.type.equals(b.type) ? then : null;
   }
 
   private TypeRef localType(Context ctx, Local l) {
@@ -2263,7 +2511,9 @@ public final class Resolver {
       if (before != Token.LPAREN && before != Token.COMMA) {
         return null;
       }
-      int open = enclosingParen(start);
+      // From the token before: a lambda `(a, b) -> ...` starts with its own '(', which would
+      // otherwise be taken for the call's.
+      int open = enclosingParen(start - 1);
       if (open < 1 || !t.is(open - 1, Token.IDENT)) {
         return null;
       }
