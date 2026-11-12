@@ -10,6 +10,7 @@ reviewer needs. The servers:
 | `java-index` | java-index with the JVM relay (`java -jar java-index.jar`) |
 | `java-index-native` | java-index with the GraalVM native relay (`target/jindex-relay`) |
 | `jdtls` | [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls), the server behind VS Code's Java extension and most editors. It compiles the project, so its answers are the baseline for correctness. |
+| `jdtls-light` | jdtls in vscode-java's lightweight mode (`java.server.launchMode: LightWeight`): the syntax server, which parses sources without importing the build, so it has no classpath and no project-wide queries |
 | `java-language-server` | [georgewfraser/java-language-server](https://github.com/georgewfraser/java-language-server), a lighter server built on javac |
 
 ## Requirements
@@ -29,8 +30,8 @@ cd benchmark
 export JAVA21_HOME=/path/to/jdk-21 JAVA25_HOME=/path/to/jdk-25 GRAALVM_HOME=/path/to/graalvm-25
 ./setup.sh
 
-python3 bench.py --servers java-index,java-index-native,jdtls
-python3 worktrees.py --servers java-index,java-index-native,jdtls
+python3 bench.py --servers java-index,java-index-native,jdtls,jdtls-light
+python3 worktrees.py --servers java-index,java-index-native,jdtls,jdtls-light
 ```
 
 `setup.sh` builds java-index (and its native relay when `GRAALVM_HOME` is set), downloads jdtls
@@ -83,7 +84,8 @@ defined in [`cases.py`](cases.py) before any server was run.
 
 * Each server runs with the defaults its usual launcher applies: java-index's daemon flags, jdtls
   with vscode-java's default VM arguments (`-Xmx2G`, parallel GC) and settings (signature help
-  on), and java-language-server with its launcher's flags (on a stock JDK 25 rather than its
+  on), jdtls-light with the same arguments and the syntax server's configuration, as vscode-java
+  starts it, and java-language-server with its launcher's flags (on a stock JDK 25 rather than its
   jlinked one). A JVM grows into the heap it is allowed, so memory figures are what users get, not
   the minimum each server needs.
 * jdtls does much more than the others: compiler errors, completion, refactorings. Lower memory

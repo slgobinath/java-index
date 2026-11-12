@@ -208,7 +208,7 @@ def report(out):
         if path.endswith(".json") and path != "environment.json":
             r = json.load(open(os.path.join(out, path)))
             runs.setdefault((r["server"], r["worktrees"]), []).append(r)
-    servers = [s for s in ("java-index", "java-index-native", "jdtls") if any(k[0] == s for k in runs)]
+    servers = [s for s in ("java-index", "java-index-native", "jdtls", "jdtls-light") if any(k[0] == s for k in runs)]
     counts = sorted({k[1] for k in runs})
     env = json.load(open(os.path.join(out, "environment.json")))
 

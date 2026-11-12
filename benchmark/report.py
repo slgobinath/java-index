@@ -55,8 +55,8 @@ def main(dirs):
     runs = load(dirs)
     env = json.load(open(os.path.join(out, "environment.json")))
     env["results"] = ", ".join(os.path.basename(os.path.normpath(d)) for d in dirs)
-    servers = [s for s in ("java-index", "java-index-native", "jdtls", "java-language-server") if s in runs] + \
-              [s for s in runs if s not in ("java-index", "java-index-native", "jdtls", "java-language-server")]
+    servers = [s for s in ("java-index", "java-index-native", "jdtls", "jdtls-light", "java-language-server") if s in runs] + \
+              [s for s in runs if s not in ("java-index", "java-index-native", "jdtls", "jdtls-light", "java-language-server")]
     lines = ["# LSP benchmark: spring-petclinic", ""]
     lines += ["| | |", "| --- | --- |"]
     lines += ["| %s | %s |" % (k, v) for k, v in env.items()]

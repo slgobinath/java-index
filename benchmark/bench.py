@@ -56,6 +56,38 @@ def java(var):
 # vscode-java's defaults where jdtls's own differ (signature help is off in jdtls itself).
 JDTLS_SETTINGS = {"java": {"import": {"gradle": {"enabled": False}}, "signatureHelp": {"enabled": True}}}
 
+def jdtls_spec(jdtls, light):
+    config = ("config_ss_" if light else "config_") + ("mac_arm" if platform.machine() == "arm64" else "mac")
+    return {
+        "cmd": lambda state: [
+            java("JAVA25_HOME"),
+            "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+            "-Dosgi.bundles.defaultStartLevel=4",
+            "-Declipse.product=org.eclipse.jdt.ls.core.product",
+            "-Dosgi.checkConfiguration=true",
+            "-Dosgi.sharedConfiguration.area=" + os.path.join(jdtls, config),
+            "-Dosgi.sharedConfiguration.area.readOnly=true",
+            "-Dosgi.configuration.cascaded=true",
+            "-Dsun.zip.disableMemoryMapping=true",
+            "-XX:+UseParallelGC", "-XX:GCTimeRatio=4", "-XX:AdaptiveSizePolicyWeight=90",
+            "-Xmx2G", "-Xms100m",
+            "--add-modules=ALL-SYSTEM",
+            "--add-opens", "java.base/java.util=ALL-UNNAMED",
+            "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+            "-jar", glob.glob(os.path.join(jdtls, "plugins", "org.eclipse.equinox.launcher_*.jar"))[0],
+            "-configuration", os.path.join(state, "config"),
+            "-data", os.path.join(state, "workspace"),
+        ],
+        "env": lambda state: {"syntaxserver": "true"} if light else {},
+        "extra_processes": None,
+        "init_options": {
+            "settings": JDTLS_SETTINGS,
+            "extendedClientCapabilities": {"classFileContentsSupport": True},
+        },
+        "settings": JDTLS_SETTINGS,
+    }
+
+
 # jdtls and java-language-server require Java 25; java-index runs on Java 21.
 # Each server runs with the defaults its usual launcher applies, so the numbers reflect what a
 # user gets: java-index's own daemon flags, jdtls with vscode-java's default VM arguments, and
@@ -82,34 +114,10 @@ def server_specs():
             "init_options": {},
             "settings": {},
         },
-        "jdtls": {
-            "cmd": lambda state: [
-                java("JAVA25_HOME"),
-                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
-                "-Dosgi.bundles.defaultStartLevel=4",
-                "-Declipse.product=org.eclipse.jdt.ls.core.product",
-                "-Dosgi.checkConfiguration=true",
-                "-Dosgi.sharedConfiguration.area=" + os.path.join(jdtls, "config_mac_arm" if platform.machine() == "arm64" else "config_mac"),
-                "-Dosgi.sharedConfiguration.area.readOnly=true",
-                "-Dosgi.configuration.cascaded=true",
-                "-Dsun.zip.disableMemoryMapping=true",
-                "-XX:+UseParallelGC", "-XX:GCTimeRatio=4", "-XX:AdaptiveSizePolicyWeight=90",
-                "-Xmx2G", "-Xms100m",
-                "--add-modules=ALL-SYSTEM",
-                "--add-opens", "java.base/java.util=ALL-UNNAMED",
-                "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-                "-jar", glob.glob(os.path.join(jdtls, "plugins", "org.eclipse.equinox.launcher_*.jar"))[0],
-                "-configuration", os.path.join(state, "config"),
-                "-data", os.path.join(state, "workspace"),
-            ],
-            "env": lambda state: {},
-            "extra_processes": None,
-            "init_options": {
-                "settings": JDTLS_SETTINGS,
-                "extendedClientCapabilities": {"classFileContentsSupport": True},
-            },
-            "settings": JDTLS_SETTINGS,
-        },
+        "jdtls": jdtls_spec(jdtls, light=False),
+        # vscode-java's lightweight mode (java.server.launchMode: LightWeight): the syntax server, which
+        # parses sources without importing the build, so it has no classpath.
+        "jdtls-light": jdtls_spec(jdtls, light=True),
         "java-language-server": {
             "cmd": lambda state: [java("JAVA25_HOME")] + jls_exports + [
                 "--add-opens", "jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",

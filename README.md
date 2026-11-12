@@ -67,20 +67,25 @@ jdtls is a full language server for writing Java. java-index only covers reading
 
 Numbers from the [benchmark](benchmark/README.md) on spring-petclinic, a small Spring Boot app
 (Apple M5 Pro, jdtls 1.63.0 with VS Code's default settings, java-index with the native relay;
-medians):
+medians). jdtls light is the same jdtls in VS Code's lightweight mode
+(`java.server.launchMode: LightWeight`), which only parses sources and doesn't import the build:
 
-| | java-index | jdtls |
-| --- | ---: | ---: |
-| Ready to answer, cold / warm start | 1.5 s / 0.4 s | 2.7 s / 1.8 s |
-| Memory, one window | 250 MB | 1.8 GB |
-| CPU time to open one window, cold | 7 s | 54 s |
-| Query latency (17 navigation queries) | 0.3–7.5 ms | 0.6–385 ms |
-| Find references on a common method | 2 ms | 385 ms |
-| 8 worktrees open at once: all ready | 1.6 s | 7.8 s |
-| 8 worktrees open at once: memory | 416 MB | 12.8 GB |
-| 8 worktrees open at once: CPU / disk | 11 s / < 1 MB | 428 s / 1.3 GB |
-| Correct answers (17 queries per window) | 17 / 17 | 17 / 17 |
-| References and implementations, location by location | same as jdtls | (baseline) |
+| | java-index | jdtls | jdtls light |
+| --- | ---: | ---: | ---: |
+| Ready to answer, cold / warm start | 1.5 s / 0.4 s | 2.9 s / 1.9 s | 1.6 s / 1.3 s |
+| Memory, one window | 256 MB | 1.8 GB | 337 MB |
+| CPU time to open one window, cold | 7 s | 57 s | 10 s |
+| Query latency (queries it answers) | 0.2–7.6 ms | 0.7–395 ms | 1.1–8.0 ms |
+| Find references on a common method | 2 ms | 395 ms | not supported |
+| 8 worktrees open at once: all ready | 1.6 s | 8.3 s | 2.7 s |
+| 8 worktrees open at once: memory | 418 MB | 12.8 GB | 3.1 GB |
+| 8 worktrees open at once: CPU / disk | 11 s / < 1 MB | 434 s / 1.3 GB | 66 s / 18 MB |
+| Correct answers (17 queries per window) | 17 / 17 | 17 / 17 | 5 / 17 |
+| References and implementations, location by location | same as jdtls | (baseline) | not supported |
+
+Lightweight mode makes jdtls almost as cheap to start as java-index, but without the build it has
+no classpath: it can't do references, implementations, type or call hierarchy, signature help or
+workspace symbols, and definitions and hover on library code come back empty.
 
 To be fair about these numbers: it's one small Maven project and 17 queries we picked ourselves. We
 haven't benchmarked large codebases, Gradle or multi-module builds yet. jdtls is also doing a lot
