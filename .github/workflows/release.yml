@@ -16,7 +16,9 @@
 #   - java-index.jar, built and tested once (it runs anywhere with Java 21+)
 #   - the native relay for each platform; GraalVM cannot cross-compile, so one runner per platform
 #   - one archive per platform: bin/jindex (native relay) + lib/java-index.jar + licenses
-#   - a GitHub release with the archives, the jar and their checksums
+#   - the VS Code extension, java-index-<version>.vsix
+#   - a GitHub release with the archives, the jar, the extension and their checksums
+#   - the extension published to the Visual Studio Marketplace (trusted publishing)
 #   - an updated Homebrew formula, Formula/java-index.rb, committed to main: this repository is
 #     its own tap (brew tap slgobinath/java-index https://github.com/slgobinath/java-index)
 
@@ -96,8 +98,30 @@ jobs:
           name: archive-${{ matrix.platform }}
           path: ${{ env.ARCHIVE }}
 
+  vscode:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Package the extension
+        run: |
+          npm ci
+          npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+          npm run package -- --out "java-index-${GITHUB_REF_NAME#v}.vsix"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode
+          path: editors/vscode/*.vsix
+
   release:
-    needs: [jar, relay]
+    needs: [jar, relay, vscode]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -120,6 +144,25 @@ jobs:
         with:
           name: checksums
           path: assets/SHA256SUMS
+
+  # After the GitHub release, because the extension downloads that release's assets on first use.
+  # Authenticates with trusted publishing (OIDC): the Marketplace publisher "gobinath" has a policy
+  # for this repository and this workflow file, release.yml, so no token is stored.
+  marketplace:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vscode
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Publish to the Visual Studio Marketplace
+        run: npx --yes @vscode/vsce@4.1.0 publish --oidc --packagePath "java-index-${GITHUB_REF_NAME#v}.vsix"
 
   homebrew:
     needs: release
