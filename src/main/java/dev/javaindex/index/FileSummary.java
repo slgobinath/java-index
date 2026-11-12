@@ -60,6 +60,10 @@ public final class FileSummary {
     this.configRefs = configRefs;
   }
 
+  long[] identFilter() {
+    return identFilter;
+  }
+
   /** False if the file definitely contains no identifier {@code name} (anywhere, bodies included). */
   public boolean mayContain(String name) {
     return IdentFilter.mayContain(identFilter, name);

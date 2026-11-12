@@ -22,8 +22,10 @@ import dev.javaindex.config.ConfigFile;
 import dev.javaindex.config.ConfigIndex;
 import dev.javaindex.config.ConfigKeys;
 import dev.javaindex.index.FileSummary;
+import dev.javaindex.index.Lines;
 import dev.javaindex.index.Snapshot;
 import dev.javaindex.index.Summarizer;
+import dev.javaindex.index.SummaryStore;
 import dev.javaindex.index.TypeHandle;
 import dev.javaindex.index.WorktreeIndex;
 import dev.javaindex.model.Universe;
@@ -154,11 +156,15 @@ public final class Worktree {
     Map<String, Path> files = walk(root, configs);
     configPaths.addAll(configs);
     configVersion.incrementAndGet();
+    // Summaries saved by an earlier daemon: files whose content hasn't changed aren't parsed again.
+    Path stored = project.summaryFile(root);
+    SummaryStore.Stored saved = SummaryStore.load(stored);
+    long parsedBefore = project.sources().parsed();
     Map<String, FileSummary> summaries = new ConcurrentHashMap<>();
     files.entrySet().parallelStream()
         .forEach(
             e -> {
-              FileSummary s = readAndSummarize(e.getKey(), e.getValue());
+              FileSummary s = readAndSummarize(e.getKey(), e.getValue(), saved);
               if (s != null) {
                 summaries.put(e.getKey(), s);
               }
@@ -179,28 +185,51 @@ public final class Worktree {
     }
     index = idx;
     buffers.values().forEach(b -> b.dirty = true);
+    long parsed = project.sources().parsed() - parsedBefore;
     LOG.info(
         String.format(
-            "indexed %s: %d files (%d differ from shared base) in %d ms",
+            "indexed %s: %d files (%d parsed, %d differ from shared base) in %d ms",
             root,
             summaries.size(),
+            parsed,
             idx.deltaSize(),
             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)));
+    // Rewrite when files were parsed, or when the stored set holds summaries no file has any more.
+    long distinct = summaries.values().stream().map(f -> f.hash).distinct().count();
+    if (parsed > 0 || saved.size() > distinct) {
+      List<FileSummary> current = List.copyOf(summaries.values());
+      project.background().execute(() -> {
+        try {
+          SummaryStore.save(stored, current);
+        } catch (IOException e) {
+          LOG.log(Level.WARNING, "could not save summaries to " + stored, e);
+        }
+      });
+    }
     // Return parse garbage to the OS promptly; the daemon is long-lived and mostly idle.
     System.gc();
   }
 
   private FileSummary readAndSummarize(String rel, Path file) {
+    return readAndSummarize(rel, file, null);
+  }
+
+  private FileSummary readAndSummarize(String rel, Path file, SummaryStore.Stored saved) {
     try {
       BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
       byte[] bytes = Files.readAllBytes(file);
       stats.put(rel, new long[] {attrs.lastModifiedTime().toMillis(), attrs.size()});
+      String hash = Summarizer.hash(bytes);
+      if (saved != null && project.sources().get(hash) == null) {
+        FileSummary stored =
+            saved.get(hash, () -> Lines.of(new String(bytes, StandardCharsets.UTF_8)));
+        if (stored != null) {
+          return project.sources().adopt(stored);
+        }
+      }
       return project
           .sources()
-          .summarize(
-              Summarizer.hash(bytes),
-              file.toString(),
-              () -> new String(bytes, StandardCharsets.UTF_8));
+          .summarize(hash, file.toString(), () -> new String(bytes, StandardCharsets.UTF_8));
     } catch (IOException e) {
       stats.remove(rel);
       return null;

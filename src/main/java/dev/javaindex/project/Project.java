@@ -54,8 +54,17 @@ public final class Project {
   private volatile Snapshot base;
 
   public Project(Path cacheDir) {
+    this.cacheDir = cacheDir;
     this.classpaths = new ClasspathProvider(cacheDir, background);
     this.locator = new SourceLocator(cacheDir);
+  }
+
+  private final Path cacheDir;
+
+  /** Where the summaries of the worktree at {@code root} are saved between daemon runs. */
+  Path summaryFile(Path root) {
+    String key = dev.javaindex.index.Summarizer.hash(root.toAbsolutePath().normalize().toString());
+    return cacheDir.resolve("summaries").resolve(key.substring(0, 16) + ".bin");
   }
 
   private static java.util.concurrent.ThreadFactory daemon(String name) {
